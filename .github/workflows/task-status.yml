@@ -1,0 +1,22 @@
+# Canonical standard file managed by fleet-sync (.github/workflows/fleet-sync.yml).
+# Do NOT edit per-repo copies — edit THIS file; fleet-sync propagates it to every
+# owned, non-fork, non-archived repo. Synced to: .github/workflows/task-status.yml
+name: task-status
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sync:
+    # Pin a CONCRETE furrow release tag: the workflow installs the furrow
+    # release binary of the same version (skew-free); bump the pin per release.
+    uses: akira-toriyama/furrow/.github/workflows/sync-task-status.yml@v0.6.0
+    # Pass ONLY the tracker-write PAT — least privilege over `secrets: inherit`,
+    # which would expose every caller-repo secret to the reusable workflow.
+    secrets:
+      PROJECTS_WRITE_PAT: ${{ secrets.PROJECTS_WRITE_PAT }}
