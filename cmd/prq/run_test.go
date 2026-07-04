@@ -383,3 +383,32 @@ func TestRunMergedDegradedStaysExitZero(t *testing.T) {
 		t.Errorf("stdout = %s", stdout.String())
 	}
 }
+
+func TestParseOriginURL(t *testing.T) {
+	cases := []struct {
+		url   string
+		owner string
+		name  string
+		ok    bool
+	}{
+		{"git@github.com:cli/cli.git", "cli", "cli", true},
+		{"github.com.akira-toriyama:akira-toriyama/prq.git", "akira-toriyama", "prq", true},
+		{"git@github.com.work:o/r.git", "o", "r", true},
+		{"ssh://git@github.com/o/r.git", "o", "r", true},
+		{"https://github.com/o/r", "o", "r", true},
+		{"https://github.com/o/r.git", "o", "r", true},
+		{"git@gitlab.com:o/r.git", "", "", false},
+		{"gh-alias:o/r.git", "", "", false},
+		{"github.community:o/r.git", "", "", false},
+		{"git@github.com:broken", "", "", false},
+	}
+	for _, tc := range cases {
+		host, owner, name, err := parseOriginURL(tc.url)
+		if tc.ok && (err != nil || owner != tc.owner || name != tc.name || host != "github.com") {
+			t.Errorf("parseOriginURL(%q) = (%s, %s, %s, %v)", tc.url, host, owner, name, err)
+		}
+		if !tc.ok && err == nil {
+			t.Errorf("parseOriginURL(%q) succeeded, want error", tc.url)
+		}
+	}
+}
