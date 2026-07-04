@@ -364,3 +364,22 @@ func TestParseSelectors(t *testing.T) {
 		}
 	}
 }
+
+func TestRunMergedDegradedStaysExitZero(t *testing.T) {
+	mergedBody := `{"repository":{"pullRequest":{
+		"id":"PR_x","number":2,"state":"MERGED","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN",
+		"baseRefName":"main","headRefOid":"abc",
+		"reviewThreads":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]},
+		"statusCheckRollup":null}}}`
+	gqlErr := &api.GraphQLError{Errors: []api.GraphQLErrorItem{{
+		Type: "FORBIDDEN", Path: []interface{}{"repository", "pullRequest", "reviewThreads"},
+	}}}
+	var stdout, stderr bytes.Buffer
+	d := testDeps(t, &fakeDoer{t: t, responses: []fakeResp{{body: mergedBody, err: gqlErr}}})
+	if code := run([]string{"2", "-R", "o/r"}, &stdout, &stderr, d); code != 0 {
+		t.Fatalf("exit = %d, want 0 (MERGED is final, degradation irrelevant)", code)
+	}
+	if !strings.Contains(stdout.String(), `"final":true`) {
+		t.Errorf("stdout = %s", stdout.String())
+	}
+}

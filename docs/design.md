@@ -468,4 +468,15 @@ Test seams (both used):
 4. **`unresolved_threads` is omitted when 0 or unknown** — the `degraded`
    token carries the unknown case (§1.1 row 8 simplification).
 5. **`checks` counts come from the walked contexts only** (≤400); past the cap
-   `checks_truncated` is the honest signal (aggregate reconciliation deferred).
+   `checks_truncated` is the honest signal (aggregate reconciliation deferred),
+   and no `+N more checks not shown` non_blocking notice accompanies it — the
+   degraded token alone carries the fact.
+6. **Degraded vocabulary gains `"checks"`** — a wholly unreadable
+   `statusCheckRollup` subtree (distinct from `required`, which means the
+   contexts arrived but their required-ness didn't). Pure-enrichment subtrees
+   (`compare`, `reviewRequests`) degrade silently: synthesis re-reports the
+   behind case itself and the codeowner suffix is best-effort.
+7. **Ready-to-enqueue reads "rollup ok" as "no required check failing or
+   pending"** (i.e. blockers and pending both empty), not "rollup state ==
+   SUCCESS" — optional-check failures must not demote an enqueueable PR to the
+   residual blocker.

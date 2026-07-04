@@ -127,9 +127,10 @@ type Report struct {
 
 // entry is a blocker/pending line before precedence sorting.
 type entry struct {
-	prec int    // topic precedence (§1.3)
-	key  string // secondary sort key (check name, bytewise)
-	text string
+	prec    int    // topic precedence (§1.3)
+	key     string // secondary sort key (check name, bytewise)
+	text    string
+	running bool // a required CheckRun still executing — collapsible (§1.3)
 }
 
 const (
@@ -238,7 +239,9 @@ func Synthesize(in Input) Report {
 
 // Summarize projects Synthesize onto the compact --mine row (§1.2): same
 // schema minus non_blocking, checks, and queue ETA; tighter list caps. The
-// fp is identical to single-PR mode (hashed pre-cap).
+// fp computation is identical to single-PR mode (hashed pre-cap) — though
+// the two modes can still hash different values when they saw different
+// facts (the coarse pass has no compare, so its degraded set differs).
 func Summarize(in Input) Report {
 	r := Synthesize(in)
 	r.NonBlocking = nil
@@ -283,10 +286,11 @@ func decompose(r *Report, in Input) (blockers, pending []entry) {
 	}
 
 	// BPR enrichment: required contexts that never reported — the fork-PR
-	// never-started case (§2.2). Only meaningful while GitHub says BLOCKED;
-	// firing it elsewhere would override a greener verdict GitHub already
-	// computed. Dedup against names visible in the rollup.
-	if in.MergeState == "BLOCKED" {
+	// never-started case (§2.2). Only meaningful while GitHub says BLOCKED
+	// (or said nothing at all — the degraded merge_state case synthesizes
+	// from components, §2.4); firing it under a greener verdict GitHub
+	// already computed would override it. Dedup against rollup names.
+	if in.MergeState == "BLOCKED" || in.MergeState == "" {
 		seen := map[string]bool{}
 		for _, c := range in.Contexts {
 			seen[c.Name] = true
@@ -361,16 +365,35 @@ func analyzeContexts(r *Report, in Input) (blockers, pending []entry, counts Che
 
 	var optFailLines []string
 	optPendingCount := 0
-	var runningRequired []entry
-	seen := map[string]bool{}
 
+	// Dedup by (kind, name), keeping the WORST occurrence: the rollup can
+	// carry the same check name from several suites (re-runs, matrices) in
+	// arbitrary order, and a green duplicate must not shadow a red one.
+	var order []string
+	best := map[string]Context{}
+	rank := func(c Context) int {
+		failing, waiting := classify(c)
+		switch {
+		case failing:
+			return 2
+		case waiting:
+			return 1
+		}
+		return 0
+	}
 	for _, c := range in.Contexts {
 		key := c.Kind + "\x00" + c.Name
-		if seen[key] {
-			continue
+		prev, seen := best[key]
+		if !seen {
+			order = append(order, key)
+			best[key] = c
+		} else if rank(c) > rank(prev) {
+			best[key] = c
 		}
-		seen[key] = true
+	}
 
+	for _, key := range order {
+		c := best[key]
 		failing, waiting := classify(c)
 		required := c.Required && in.RequiredKnown
 		unknownReq := !in.RequiredKnown
@@ -389,26 +412,19 @@ func analyzeContexts(r *Report, in Input) (blockers, pending []entry, counts Che
 		case required && failing:
 			counts.ReqFail++
 			blockers = append(blockers, entry{prec: precCheck, key: c.Name,
-				text: failedLine(in, c, suffix, false)})
+				text: failedLine(in, c, suffix)})
 		case required && waiting:
 			counts.ReqRun++
-			runningRequired = append(runningRequired, entry{prec: precCheck, key: c.Name,
-				text: fmt.Sprintf("check: '%s' %s%s", c.Name, waitWord(c), suffix)})
+			pending = append(pending, entry{prec: precCheck, key: c.Name,
+				text:    fmt.Sprintf("check: '%s' %s%s", c.Name, waitWord(c), suffix),
+				running: c.Kind == "check"})
 		case failing:
 			counts.OptFail++
-			optFailLines = append(optFailLines, failedLine(in, c, " (optional)", true))
+			optFailLines = append(optFailLines, failedLine(in, c, " (optional)"))
 		default:
 			counts.OptRun++
 			optPendingCount++
 		}
-	}
-
-	// >3 required running collapse into one aggregate line (§1.3).
-	if len(runningRequired) > collapseRunning {
-		pending = append(pending, entry{prec: precCheck,
-			text: fmt.Sprintf("checks: %d required running", len(runningRequired))})
-	} else {
-		pending = append(pending, runningRequired...)
 	}
 
 	sort.Strings(optFailLines)
@@ -447,12 +463,12 @@ func classify(c Context) (failing, waiting bool) {
 
 // failedLine renders a failing context per the §1.3 vocabulary. ACTION_REQUIRED
 // and STALE carry their own next actions — cifail cannot fix either.
-func failedLine(in Input, c Context, suffix string, optional bool) string {
+func failedLine(in Input, c Context, suffix string) string {
 	switch c.Conclusion {
 	case "ACTION_REQUIRED":
-		return fmt.Sprintf("check: '%s' ACTION_REQUIRED (needs manual approval)", c.Name)
+		return fmt.Sprintf("check: '%s' ACTION_REQUIRED%s (needs manual approval)", c.Name, suffix)
 	case "STALE":
-		return fmt.Sprintf("check: '%s' STALE -> re-run after push", c.Name)
+		return fmt.Sprintf("check: '%s' STALE%s -> re-run after push", c.Name, suffix)
 	}
 	verb := "FAILING"
 	if c.Kind == "check" && c.Conclusion != "FAILURE" {
@@ -477,6 +493,34 @@ func waitWord(c Context) string {
 
 const computingText = "mergeable: still computing (retry budget exhausted)"
 
+// collapseRunningChecks folds >3 running required checks into one aggregate
+// display line (§1.3); other pending entries pass through untouched.
+func collapseRunningChecks(pending []entry) []entry {
+	running := 0
+	for _, e := range pending {
+		if e.running {
+			running++
+		}
+	}
+	if running <= collapseRunning {
+		return pending
+	}
+	out := make([]entry, 0, len(pending)-running+1)
+	inserted := false
+	for _, e := range pending {
+		if !e.running {
+			out = append(out, e)
+			continue
+		}
+		if !inserted {
+			inserted = true
+			out = append(out, entry{prec: precCheck,
+				text: fmt.Sprintf("checks: %d required running", running)})
+		}
+	}
+	return out
+}
+
 // onlyComputing reports whether every pending entry is the one the UNKNOWN
 // retry exhaustion generates.
 func onlyComputing(pending []entry) bool {
@@ -488,13 +532,15 @@ func onlyComputing(pending []entry) bool {
 	return true
 }
 
-// finish sorts, caps, fingerprints, and freezes the report.
+// finish sorts, caps, fingerprints, and freezes the report. The fingerprint
+// hashes the UNCOLLAPSED pending set (real check names), so progress among
+// many running checks is visible even while the display shows an aggregate.
 func finish(r *Report, in Input, blockers, pending []entry) {
 	r.Blockers = flatten(blockers, capBlockers)
 	if r.Blockers == nil {
 		r.Blockers = []string{}
 	}
-	r.Pending = flatten(pending, capPending)
+	r.Pending = flatten(collapseRunningChecks(pending), capPending)
 
 	if r.MergeState = in.MergeState; r.MergeState == r.State {
 		r.MergeState = "" // shown only when the verdict diverges (§1.1 row 13)
@@ -564,10 +610,13 @@ func fingerprint(r *Report, blockers, pending []entry, in Input) string {
 
 	var pendingChecks []string
 	for _, e := range pending {
-		if e.prec == precCheck {
-			if name := checkName(e.text); name != "" {
-				pendingChecks = append(pendingChecks, name)
-			}
+		if e.prec != precCheck {
+			continue
+		}
+		if e.key != "" {
+			pendingChecks = append(pendingChecks, e.key)
+		} else {
+			pendingChecks = append(pendingChecks, e.text)
 		}
 	}
 	sort.Strings(pendingChecks)
@@ -597,20 +646,6 @@ func fingerprint(r *Report, blockers, pending []entry, in Input) string {
 		"|d=" + strings.Join(r.Degraded, ",")
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:8])
-}
-
-// checkName extracts the quoted name from a "check: '<name>' …" line; the
-// collapsed aggregate line has none and hashes as its own text upstream.
-func checkName(line string) string {
-	rest, ok := strings.CutPrefix(line, "check: '")
-	if !ok {
-		return line // aggregate form: stable as-is
-	}
-	name, _, ok := strings.Cut(rest, "'")
-	if !ok {
-		return line
-	}
-	return name
 }
 
 func base(in Input) string {

@@ -277,6 +277,18 @@ func PR(ctx context.Context, c gh.Doer, sleep SleepFunc, owner, name string, num
 
 	in := normalize(pr, owner+"/"+name)
 	in.Degraded = append(in.Degraded, degraded...)
+	// A partial error on these subtrees means their facts are missing, not
+	// merely thin — flip the known-flags so synthesis applies the §2.4
+	// conservative fallback instead of trusting zero values.
+	for _, token := range degraded {
+		switch token {
+		case "required":
+			in.RequiredKnown = false
+		case "threads":
+			in.ThreadsKnown = false
+			in.UnresolvedThreads = 0
+		}
+	}
 	paginate(ctx, c, vars, pr, &in)
 	return in, nil
 }

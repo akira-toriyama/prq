@@ -190,7 +190,8 @@ func runMine(ctx context.Context, stdout, stderr io.Writer, d deps, reposFlag st
 
 // exitForReport maps a report to its exit code, including the §4.3 rule that
 // a degraded green/wait verdict is not certifiable (soft 3): a loop must
-// never treat an unverifiable CLEAN as mergeable.
+// never treat an unverifiable CLEAN as mergeable. Terminal PRs are exempt —
+// MERGED is final whatever the token could not read.
 func exitForReport(r synth.Report) int {
 	var code int
 	switch r.State {
@@ -201,7 +202,7 @@ func exitForReport(r synth.Report) int {
 	default: // CLEAN, UNSTABLE, MERGED
 		code = 0
 	}
-	if len(r.Degraded) > 0 && code != 1 {
+	if len(r.Degraded) > 0 && code != 1 && !r.Final {
 		return 3
 	}
 	return code

@@ -91,6 +91,10 @@ func Mine(ctx context.Context, c gh.Doer, repos []string, limit int) (MineResult
 		// context list itself) arrives in phase 2 for the PRs that need it.
 		in.RequiredKnown = false
 		in.Degraded = append(in.Degraded, degraded...)
+		if pr.ReviewThreads.TotalCount > len(pr.ReviewThreads.Nodes) {
+			// No pagination in --mine: past one page the count is a lower bound.
+			in.Degraded = append(in.Degraded, "threads_truncated")
+		}
 		res.Inputs = append(res.Inputs, in)
 		ids = append(ids, pr.ID)
 	}

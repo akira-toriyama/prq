@@ -100,3 +100,16 @@ func TestPartial(t *testing.T) {
 		}
 	})
 }
+
+func TestPartialSilentEnrichmentLoss(t *testing.T) {
+	// compare/reviewRequests are pure enrichment: their loss degrades the
+	// call (usable partial data) but emits no vocabulary token.
+	err := &api.GraphQLError{Errors: []api.GraphQLErrorItem{
+		{Type: "SOME_ERROR", Path: []interface{}{"repository", "pullRequest", "baseRef", "compare"}},
+		{Type: "FORBIDDEN", Path: []interface{}{"repository", "pullRequest", "reviewRequests"}},
+	}}
+	ok, tokens := Partial(err)
+	if !ok || len(tokens) != 0 {
+		t.Errorf("Partial = (%v, %v), want (true, none)", ok, tokens)
+	}
+}

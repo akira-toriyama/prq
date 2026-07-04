@@ -392,3 +392,54 @@ func TestMineTruncation(t *testing.T) {
 		t.Errorf("truncated=%v total=%d, want true/80", res.Truncated, res.Total)
 	}
 }
+
+func TestPRPartialErrorsFlipKnownFlags(t *testing.T) {
+	t.Run("threads error flips ThreadsKnown", func(t *testing.T) {
+		gqlErr := &api.GraphQLError{Errors: []api.GraphQLErrorItem{{
+			Type: "FORBIDDEN", Path: []interface{}{"repository", "pullRequest", "reviewThreads"},
+		}}}
+		d := &fakeDoer{t: t, responses: []fakeResp{{body: prBody("OPEN", "MERGEABLE", "CLEAN"), err: gqlErr}}}
+		in, err := PR(ctxTest(), d, noSleep, "o", "r", 1, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in.ThreadsKnown {
+			t.Error("ThreadsKnown should flip so synth applies the conservative path")
+		}
+	})
+	t.Run("isRequired error flips RequiredKnown", func(t *testing.T) {
+		gqlErr := &api.GraphQLError{Errors: []api.GraphQLErrorItem{{
+			Type: "UNPROCESSABLE", Message: "A pull request ID or pull request number is required",
+		}}}
+		d := &fakeDoer{t: t, responses: []fakeResp{{body: prBody("OPEN", "MERGEABLE", "CLEAN"), err: gqlErr}}}
+		in, err := PR(ctxTest(), d, noSleep, "o", "r", 1, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in.RequiredKnown {
+			t.Error("RequiredKnown should flip so synth over-blocks instead of false-greening")
+		}
+	})
+}
+
+func TestMineThreadsTruncationFlag(t *testing.T) {
+	body := `{"search":{"issueCount":1,"nodes":[
+		{"id":"PR_b","number":6,"repository":{"nameWithOwner":"o/y"},"state":"OPEN",
+		 "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","baseRefName":"main",
+		 "reviewThreads":{"totalCount":150,"nodes":[{"isResolved":false}]},
+		 "statusCheckRollup":null}]}}`
+	d := &fakeDoer{t: t, responses: []fakeResp{{body: body}}}
+	res, err := Mine(ctxTest(), d, nil, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tok := range res.Inputs[0].Degraded {
+		if tok == "threads_truncated" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("degraded = %v, want threads_truncated (150 > fetched 1)", res.Inputs[0].Degraded)
+	}
+}

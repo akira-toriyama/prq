@@ -565,3 +565,70 @@ func TestFingerprint(t *testing.T) {
 		}
 	})
 }
+
+func TestReviewFixes(t *testing.T) {
+	t.Run("worst occurrence wins the same-name dedup", func(t *testing.T) {
+		i := open()
+		i.MergeState = "BLOCKED"
+		i.Contexts = []Context{
+			{Kind: "check", Name: "lint", Status: "COMPLETED", Conclusion: "SUCCESS", Required: true},
+			reqFail("lint", 7), // a green duplicate must not shadow this
+		}
+		r := Synthesize(i)
+		want := []string{"check: 'lint' FAILING -> cifail --run 7 -R o/r"}
+		if !reflect.DeepEqual(r.Blockers, want) {
+			t.Errorf("blockers = %q, want %q", r.Blockers, want)
+		}
+		if r.Checks == nil || r.Checks.ReqFail != 1 || r.Checks.ReqOK != 0 {
+			t.Errorf("checks = %+v, want req_fail:1 only", r.Checks)
+		}
+	})
+	t.Run("optional ACTION_REQUIRED and STALE keep the optional marker", func(t *testing.T) {
+		i := open()
+		i.MergeState = "UNSTABLE"
+		i.Contexts = []Context{
+			{Kind: "check", Name: "a", Status: "COMPLETED", Conclusion: "ACTION_REQUIRED"},
+			{Kind: "check", Name: "s", Status: "COMPLETED", Conclusion: "STALE"},
+		}
+		r := Synthesize(i)
+		want := []string{
+			"check: 'a' ACTION_REQUIRED (optional) (needs manual approval)",
+			"check: 's' STALE (optional) -> re-run after push",
+		}
+		if !reflect.DeepEqual(r.NonBlocking, want) {
+			t.Errorf("non_blocking = %q, want %q", r.NonBlocking, want)
+		}
+	})
+	t.Run("fp sees through the running-checks collapse", func(t *testing.T) {
+		mk := func(names ...string) Input {
+			i := open()
+			i.MergeState = "BLOCKED"
+			for _, n := range names {
+				i.Contexts = append(i.Contexts, Context{Kind: "check", Name: n, Status: "QUEUED", Required: true})
+			}
+			return i
+		}
+		r1 := Synthesize(mk("a", "b", "c", "d"))
+		r2 := Synthesize(mk("a", "b", "c", "e")) // same count, one swapped
+		if len(r1.Pending) != 1 || r1.Pending[0] != "checks: 4 required running" {
+			t.Fatalf("display not collapsed: %q", r1.Pending)
+		}
+		if r1.FP == r2.FP {
+			t.Error("fp identical although the running set changed under the collapse")
+		}
+		if r1.FP != Synthesize(mk("d", "c", "b", "a")).FP {
+			t.Error("fp depends on running-check order")
+		}
+	})
+	t.Run("missing-required fires when merge state is unavailable", func(t *testing.T) {
+		i := open()
+		i.MergeState = ""
+		i.Mergeable = ""
+		i.MissingRequired = []string{"ci/x"}
+		r := Synthesize(i)
+		want := []string{"check: 'ci/x' MISSING (required, never reported)"}
+		if !reflect.DeepEqual(r.Blockers, want) {
+			t.Errorf("blockers = %q, want %q", r.Blockers, want)
+		}
+	})
+}

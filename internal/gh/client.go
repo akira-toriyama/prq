@@ -127,17 +127,19 @@ func retryAfter(e *api.HTTPError) int {
 }
 
 // optionalFields maps response sub-trees prq can answer without to their
-// degraded-vocabulary token (design §1.1 row 15). An error confined to these
-// degrades the output instead of failing the call.
+// degraded-vocabulary token (design §1.1 row 15; "checks" is a documented v1
+// addition for a wholly unreadable rollup). An empty token degrades silently:
+// the subtree is pure enrichment (behind counts, codeowner suffix) whose loss
+// synthesis either re-reports itself or safely ignores.
 var optionalFields = map[string]string{
 	"reviewThreads":     "threads",
 	"statusCheckRollup": "checks",
 	"contexts":          "checks",
 	"isRequired":        "required",
 	"mergeQueueEntry":   "merge_state",
-	"compare":           "behind",
-	"baseRef":           "behind",
-	"reviewRequests":    "review",
+	"compare":           "",
+	"baseRef":           "",
+	"reviewRequests":    "",
 }
 
 // Partial reports whether a GraphQL error only touches optional sub-fields,
@@ -151,23 +153,23 @@ func Partial(err error) (degraded bool, tokens []string) {
 	}
 	seen := map[string]bool{}
 	for _, item := range gqlErr.Errors {
-		token := ""
+		token, matched := "", false
 		for _, p := range item.Path {
 			if s, ok := p.(string); ok {
 				if tk, optional := optionalFields[s]; optional {
-					token = tk
+					token, matched = tk, true
 				}
 			}
 		}
 		// isRequired errors surface as UNPROCESSABLE with the field in the
 		// message on some shapes; catch those too.
-		if token == "" && strings.Contains(item.Message, "pull request ID or pull request number") {
-			token = "required"
+		if !matched && strings.Contains(item.Message, "pull request ID or pull request number") {
+			token, matched = "required", true
 		}
-		if token == "" {
+		if !matched {
 			return false, nil
 		}
-		if !seen[token] {
+		if token != "" && !seen[token] {
 			seen[token] = true
 			tokens = append(tokens, token)
 		}
