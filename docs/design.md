@@ -480,3 +480,17 @@ Test seams (both used):
    pending"** (i.e. blockers and pending both empty), not "rollup state ==
    SUCCESS" — optional-check failures must not demote an enqueueable PR to the
    residual blocker.
+8. **The fingerprint hashes state `UNSTABLE` as `CLEAN`** — §1.4 lists
+   optional-check churn as fp-invariant, but such churn alone flips
+   CLEAN↔UNSTABLE, and `state` is in the canonical string. The invariant wins:
+   both hash as CLEAN (their exit codes are identical, so no actionable
+   transition is hidden).
+9. **`--mine` emits no per-PR error lines** — v1 has no per-PR hard-failure
+   path (a search failure fails the whole call; a phase-2 detail failure
+   degrades the row). The §1.2 error-line shape is reserved for when one
+   exists.
+10. **Actions are capped at 120 runes (§1.3) by dropping, entries at 140 by
+    truncation** — a >120-rune action (giant targetUrl) is dropped whole
+    rather than truncated into something un-pasteable; the line cap is wider
+    than §1.5's nominal 120 because the fixed §1.3 vocabulary itself runs to
+    ~130 runes. Fingerprints hash the uncapped text.

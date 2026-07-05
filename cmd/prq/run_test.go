@@ -412,3 +412,26 @@ func TestParseOriginURL(t *testing.T) {
 		}
 	}
 }
+
+func TestRunMineTruncatedLineByteOrder(t *testing.T) {
+	search := `{"search":{"issueCount":40,"nodes":[
+		{"id":"PR_a","number":5,"repository":{"nameWithOwner":"o/x"},"state":"OPEN",
+		 "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","baseRefName":"main",
+		 "reviewThreads":{"totalCount":0,"nodes":[]},"statusCheckRollup":null}]}}`
+	var stdout, stderr bytes.Buffer
+	d := testDeps(t, &fakeDoer{t: t, responses: []fakeResp{{body: search}}})
+	run([]string{"--mine", "--repos", "o/x"}, &stdout, &stderr, d)
+	lines := strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n")
+	last := lines[len(lines)-1]
+	if last != `{"truncated":true,"total":40}` {
+		t.Errorf("truncated line = %q, want normative key order", last)
+	}
+}
+
+func TestRunReposWithOnlyEmptyEntriesIsUsage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	d := testDeps(t, &fakeDoer{t: t})
+	if code := run([]string{"--mine", "--repos", ","}, &stdout, &stderr, d); code != 64 {
+		t.Fatalf("exit = %d, want 64 (must not silently widen scope)", code)
+	}
+}

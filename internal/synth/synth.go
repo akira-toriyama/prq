@@ -35,6 +35,14 @@ const (
 	capNonBlocking  = 5
 	capMineList     = 3
 	collapseRunning = 3 // >3 required running checks collapse into one line
+	// maxActionRunes enforces §1.3 (action ≤120 chars); a longer action —
+	// typically a giant targetUrl — is dropped rather than truncated into
+	// something un-pasteable. maxLineRunes bounds the whole entry for the
+	// §1.5 byte ceiling; it is wider than the action cap because the fixed
+	// §1.3 vocabulary itself runs up to ~130 runes (the residual-blocked
+	// line with its thread hint).
+	maxActionRunes = 120
+	maxLineRunes   = 140
 )
 
 // Queue is the PR's merge-queue entry.
@@ -541,6 +549,10 @@ func finish(r *Report, in Input, blockers, pending []entry) {
 		r.Blockers = []string{}
 	}
 	r.Pending = flatten(collapseRunningChecks(pending), capPending)
+	for i, s := range r.NonBlocking {
+		r.NonBlocking[i] = capLine(s)
+	}
+	r.NonBlocking = recap(r.NonBlocking, capNonBlocking)
 
 	if r.MergeState = in.MergeState; r.MergeState == r.State {
 		r.MergeState = "" // shown only when the verdict diverges (§1.1 row 13)
@@ -572,9 +584,27 @@ func flatten(entries []entry, limit int) []string {
 	})
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, e.text)
+		out = append(out, capLine(e.text))
 	}
 	return recap(out, limit)
+}
+
+// capLine bounds one emitted entry: an action beyond the §1.3 cap is dropped
+// whole (truncating it would leave something un-pasteable), then anything
+// still over the line cap is truncated. Fingerprints hash the uncapped text,
+// so an action drifting beyond the cap still wakes a loop.
+func capLine(s string) string {
+	if head, action, ok := strings.Cut(s, " -> "); ok && len([]rune(action)) > maxActionRunes {
+		s = head
+	}
+	if len([]rune(s)) <= maxLineRunes {
+		return s
+	}
+	if head, _, ok := strings.Cut(s, " -> "); ok && len([]rune(head)) <= maxLineRunes {
+		return head
+	}
+	r := []rune(s)
+	return string(r[:maxLineRunes-1]) + "…"
 }
 
 // recap caps a list to limit entries, folding the tail (including a previous

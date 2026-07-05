@@ -1,6 +1,7 @@
 package synth
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -629,6 +630,56 @@ func TestReviewFixes(t *testing.T) {
 		want := []string{"check: 'ci/x' MISSING (required, never reported)"}
 		if !reflect.DeepEqual(r.Blockers, want) {
 			t.Errorf("blockers = %q, want %q", r.Blockers, want)
+		}
+	})
+}
+
+func TestLineAndListCaps(t *testing.T) {
+	t.Run("over-long action is dropped whole", func(t *testing.T) {
+		i := open()
+		i.MergeState = "BLOCKED"
+		i.Contexts = []Context{{Kind: "status", Name: "ci/x", Conclusion: "ERROR", Required: true,
+			URL: "https://ci.example.com/" + strings.Repeat("x", 150)}}
+		r := Synthesize(i)
+		if len(r.Blockers) != 1 || r.Blockers[0] != "check: 'ci/x' FAILING" {
+			t.Errorf("blockers = %q, want bare form without the un-pasteable URL", r.Blockers)
+		}
+	})
+	t.Run("giant check names are truncated to the line cap", func(t *testing.T) {
+		i := open()
+		i.MergeState = "BLOCKED"
+		i.Contexts = []Context{{Kind: "status", Name: strings.Repeat("n", 300), Conclusion: "ERROR", Required: true}}
+		r := Synthesize(i)
+		if got := len([]rune(r.Blockers[0])); got > 140 {
+			t.Errorf("blocker length = %d runes, cap 140", got)
+		}
+	})
+	t.Run("fixed residual vocabulary survives the cap", func(t *testing.T) {
+		i := open()
+		i.MergeState = "BLOCKED"
+		i.UnresolvedThreads = 12
+		r := Synthesize(i)
+		if !strings.HasSuffix(r.Blockers[0], "12 unresolved threads)") {
+			t.Errorf("residual line truncated: %q", r.Blockers[0])
+		}
+	})
+	t.Run("non_blocking is recapped at 5 overall", func(t *testing.T) {
+		i := open()
+		i.MergeState = "HAS_HOOKS"
+		for n := 0; n < 8; n++ {
+			i.Contexts = append(i.Contexts, Context{Kind: "check", Name: fmt.Sprintf("opt%d", n),
+				Status: "COMPLETED", Conclusion: "FAILURE"})
+		}
+		i.Contexts = append(i.Contexts,
+			Context{Kind: "check", Name: "p1", Status: "QUEUED"},
+			Context{Kind: "check", Name: "p2", Status: "QUEUED"})
+		r := Synthesize(i)
+		if len(r.NonBlocking) != capNonBlocking+1 {
+			t.Fatalf("non_blocking = %d entries (%q), want %d + summary", len(r.NonBlocking), r.NonBlocking, capNonBlocking)
+		}
+		last := r.NonBlocking[len(r.NonBlocking)-1]
+		if !strings.HasPrefix(last, "+") || !strings.HasSuffix(last, " more") {
+			t.Errorf("summary line = %q", last)
 		}
 	})
 }

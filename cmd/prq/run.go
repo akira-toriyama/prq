@@ -159,6 +159,10 @@ func runMine(ctx context.Context, stdout, stderr io.Writer, d deps, reposFlag st
 		}
 		repos = append(repos, r)
 	}
+	if reposFlag != "" && len(repos) == 0 {
+		// "--repos ," must not silently widen the scope to every repo.
+		return emitUsage(stderr, "--repos contains no owner/repo entries")
+	}
 
 	client, err := d.client()
 	if err != nil {
@@ -181,7 +185,13 @@ func runMine(ctx context.Context, stdout, stderr io.Writer, d deps, reposFlag st
 		}
 	}
 	if res.Truncated {
-		if err := writeJSON(stdout, map[string]interface{}{"truncated": true, "total": res.Total}); err != nil {
+		// Struct, not map: §1.1 makes field order normative and encoding/json
+		// sorts map keys.
+		line := struct {
+			Truncated bool `json:"truncated"`
+			Total     int  `json:"total"`
+		}{true, res.Total}
+		if err := writeJSON(stdout, line); err != nil {
 			return emit(stderr, err)
 		}
 	}

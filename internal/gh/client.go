@@ -142,22 +142,36 @@ var optionalFields = map[string]string{
 	"reviewRequests":    "",
 }
 
-// Partial reports whether a GraphQL error only touches optional sub-fields,
-// so the caller may keep the partial response (go-gh populates it before
-// returning the error — source-verified) and mark the output degraded. The
-// returned tokens use the design's degraded vocabulary.
-func Partial(err error) (degraded bool, tokens []string) {
+// PartialItem is one tolerable GraphQL error: its degraded-vocabulary token
+// ("" = silent enrichment loss) and, when the error path runs through a
+// nodes[i] element (search results), the node index it belongs to (-1 =
+// response-wide).
+type PartialItem struct {
+	Token string
+	Node  int
+}
+
+// PartialItems reports whether a GraphQL error only touches optional
+// sub-fields, so the caller may keep the partial response (go-gh populates it
+// before returning the error — source-verified) and degrade precisely what
+// each error item touched.
+func PartialItems(err error) (degraded bool, items []PartialItem) {
 	var gqlErr *api.GraphQLError
 	if !errors.As(err, &gqlErr) || len(gqlErr.Errors) == 0 {
 		return false, nil
 	}
-	seen := map[string]bool{}
 	for _, item := range gqlErr.Errors {
-		token, matched := "", false
+		token, matched, node, prev := "", false, -1, ""
 		for _, p := range item.Path {
-			if s, ok := p.(string); ok {
-				if tk, optional := optionalFields[s]; optional {
+			switch v := p.(type) {
+			case string:
+				if tk, optional := optionalFields[v]; optional {
 					token, matched = tk, true
+				}
+				prev = v
+			case float64:
+				if prev == "nodes" {
+					node = int(v)
 				}
 			}
 		}
@@ -169,9 +183,23 @@ func Partial(err error) (degraded bool, tokens []string) {
 		if !matched {
 			return false, nil
 		}
-		if token != "" && !seen[token] {
-			seen[token] = true
-			tokens = append(tokens, token)
+		items = append(items, PartialItem{Token: token, Node: node})
+	}
+	return true, items
+}
+
+// Partial is PartialItems flattened to the unique non-silent tokens — the
+// right shape for single-PR calls, where every error concerns the one PR.
+func Partial(err error) (degraded bool, tokens []string) {
+	ok, items := PartialItems(err)
+	if !ok {
+		return false, nil
+	}
+	seen := map[string]bool{}
+	for _, it := range items {
+		if it.Token != "" && !seen[it.Token] {
+			seen[it.Token] = true
+			tokens = append(tokens, it.Token)
 		}
 	}
 	return true, tokens

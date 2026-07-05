@@ -443,3 +443,36 @@ func TestMineThreadsTruncationFlag(t *testing.T) {
 		t.Errorf("degraded = %v, want threads_truncated (150 > fetched 1)", res.Inputs[0].Degraded)
 	}
 }
+
+func TestMineNodeScopedDegradation(t *testing.T) {
+	// A partial error whose path names search.nodes[1] must degrade ONLY
+	// that PR — not smear the whole board.
+	gqlErr := &api.GraphQLError{Errors: []api.GraphQLErrorItem{{
+		Type: "FORBIDDEN",
+		Path: []interface{}{"search", "nodes", float64(1), "reviewThreads"},
+	}}}
+	d := &fakeDoer{t: t, responses: []fakeResp{{body: mineSearchBody, err: gqlErr}, {body: `{}`}}}
+	res, err := Mine(ctxTest(), d, nil, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// inputs are sorted by repo: o/x#5 (node 0), o/y#6 (node 1)
+	for _, in := range res.Inputs {
+		has := false
+		for _, tok := range in.Degraded {
+			if tok == "threads" {
+				has = true
+			}
+		}
+		switch in.Repo {
+		case "o/y": // node 1 — the degraded one
+			if !has || in.ThreadsKnown {
+				t.Errorf("o/y should carry threads degradation: degraded=%v threadsKnown=%v", in.Degraded, in.ThreadsKnown)
+			}
+		case "o/x":
+			if has || !in.ThreadsKnown {
+				t.Errorf("o/x must NOT be smeared: degraded=%v threadsKnown=%v", in.Degraded, in.ThreadsKnown)
+			}
+		}
+	}
+}

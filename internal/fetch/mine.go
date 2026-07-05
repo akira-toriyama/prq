@@ -69,18 +69,19 @@ func Mine(ctx context.Context, c gh.Doer, repos []string, limit int) (MineResult
 	}
 
 	var resp mineResp
-	var degraded []string
+	var partials []gh.PartialItem
 	err := c.Do(ctx, mineQuery, map[string]interface{}{"q": q.String(), "limit": limit}, &resp)
 	if err != nil {
-		ok, tokens := gh.Partial(err)
+		ok, items := gh.PartialItems(err)
 		if !ok {
 			return MineResult{}, gh.Classify(err, "search: "+q.String())
 		}
-		degraded = tokens
+		partials = items
 	}
 
 	res := MineResult{Total: resp.Search.IssueCount}
 	ids := make([]string, 0, len(resp.Search.Nodes))
+	nodeToInput := make(map[int]int, len(resp.Search.Nodes))
 	for i := range resp.Search.Nodes {
 		pr := &resp.Search.Nodes[i]
 		if pr.Number == 0 { // non-PR search node (defensive)
@@ -90,15 +91,39 @@ func Mine(ctx context.Context, c gh.Doer, repos []string, limit int) (MineResult
 		// The coarse pass fetches no context nodes; required-ness (and the
 		// context list itself) arrives in phase 2 for the PRs that need it.
 		in.RequiredKnown = false
-		in.Degraded = append(in.Degraded, degraded...)
 		if pr.ReviewThreads.TotalCount > len(pr.ReviewThreads.Nodes) {
 			// No pagination in --mine: past one page the count is a lower bound.
 			in.Degraded = append(in.Degraded, "threads_truncated")
 		}
+		nodeToInput[i] = len(res.Inputs)
 		res.Inputs = append(res.Inputs, in)
 		ids = append(ids, pr.ID)
 	}
 	res.Truncated = res.Total > len(res.Inputs)
+
+	// Attribute each partial error to the search node its path names; only
+	// node-less errors degrade the whole board.
+	for _, p := range partials {
+		if p.Token == "" {
+			continue
+		}
+		targets := res.Inputs
+		if p.Node >= 0 {
+			idx, ok := nodeToInput[p.Node]
+			if !ok {
+				continue
+			}
+			targets = res.Inputs[idx : idx+1]
+		}
+		for t := range targets {
+			in := &targets[t]
+			in.Degraded = appendToken(in.Degraded, p.Token)
+			if p.Token == "threads" {
+				in.ThreadsKnown = false
+				in.UnresolvedThreads = 0
+			}
+		}
+	}
 
 	resolveDetail(ctx, c, res.Inputs, ids)
 
@@ -186,4 +211,13 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func appendToken(list []string, token string) []string {
+	for _, t := range list {
+		if t == token {
+			return list
+		}
+	}
+	return append(list, token)
 }
