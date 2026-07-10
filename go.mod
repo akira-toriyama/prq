@@ -1,10 +1,10 @@
 module github.com/akira-toriyama/prq
 
-go 1.23.3
+go 1.25.0
 
 require (
-	github.com/cli/go-gh/v2 v2.12.2
-	github.com/cli/safeexec v1.0.0
+	github.com/cli/go-gh/v2 v2.13.0
+	github.com/cli/safeexec v1.0.1
 )
 
 require (
