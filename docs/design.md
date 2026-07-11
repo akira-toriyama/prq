@@ -1,6 +1,8 @@
 # prq design
 
-Final synthesized design — the implementer follows this verbatim. All API facts below were live-verified against github.com GraphQL on 2026-07-03 (gh 2.80.0) across the three designer verification logs, plus judge re-verification of the two tie-breakers noted in Decisions. Items no designer could verify live are in the final section.
+Final synthesized design. All API facts below were live-verified against github.com GraphQL on 2026-07-03 (gh 2.80.0) across the three designer verification logs, plus judge re-verification of the two tie-breakers noted in Decisions. Items no designer could verify live are in the final section.
+
+> **Reconciled with the shipped code on 2026-07-12.** Where this design first sketched a plan the v1 implementation later refined — the package layout (§5), the go-gh/toolchain pins (D1), the `checks` source (§1.1/§3.1/D15), and the test seams (§5) — the sections below now describe what the code actually does; deliberate departures remain called out under *v1 implementation deviations*. Four of the nine *Unverified* items were live-checked on 2026-07-12 (marked ✓ in that section).
 
 ## Decisions
 
@@ -8,7 +10,7 @@ Where proposals A (api-correctness), B (agent-ux), C (robustness) conflicted:
 
 | # | topic | decision | rationale |
 |---|---|---|---|
-| D1 | go-gh version | pin **v2.12.2** | judge re-verified: v2.13.0 `.mod` requires go 1.25.0; local toolchain is go1.23.3 (A+B verified, C's v2.13.0 pin would not build) |
+| D1 | go-gh version | **v2.13.0** (design-time pin was v2.12.2) | at design time v2.13.0's `.mod` required go 1.25.0 while the local toolchain was go1.23.3, so v2.12.2 was pinned; the go.mod floor has since moved to go 1.25.12 (commit 86a166c) and go-gh was bumped to v2.13.0 exactly as §5 anticipated — the used API surface is unchanged |
 | D2 | behind-by fetch | in the main query via `pullRequest.baseRef.compare(headRef:"refs/pull/N/head")` (B) | judge re-verified live on fork PR cli/cli#13761: `behindBy:13`, cost 1 — one round trip, fork-proof, no base-name pre-resolve; drops A/C's conditional follow-up and A's `--behind` flag |
 | D3 | `state` field | prq-derived verdict enum (B), not raw `mergeStateStatus` passthrough (A) | the synthesized verdict is the product; raw value still available as `merge_state` when it differs |
 | D4 | multi-PR output | **NDJSON**, one object per line (B) | per-line `fp` diff with `grep -F`/`cmp`, no reflow, partial consumption; A/C's wrapper object adds bytes for no agent value |
@@ -22,7 +24,7 @@ Where proposals A (api-correctness), B (agent-ux), C (robustness) conflicted:
 | D12 | hard-failure exits | 3 = auth/permission (incl. masked NOT_FOUND, degraded-green); 4 = transient/execution; 64 = usage (C's split + B's degraded-green rule) | retrying later is meaningful for 4, pointless for 3; C verified NOT_FOUND masks private-vs-missing |
 | D13 | `ACTION_REQUIRED` | its own blocker text (`needs manual approval`), not lumped into FAILING (C) | cifail can't fix a workflow-approval gate; wrong handoff wastes an agent turn |
 | D14 | `EXPECTED` StatusContext | pending[] (wait), not blocker (A+B majority) | it can still start; the never-reported case is covered by the BPR `MISSING` enrichment and the residual blocker |
-| D15 | pagination caps | contexts 4×100=400; threads 5×100=500 | majority values; aggregates (`checkRunCountsByState`, `totalCount`) keep truncated output honest |
+| D15 | pagination caps | contexts 4×100=400; threads 5×100=500 | majority values; `totalCount` keeps the truncated thread count honest (the `checkRunCountsByState`/`statusContextCountsByState` aggregates this row once named were not implemented — deviation #5) |
 | D16 | cobra | no — stdlib `flag` | unanimous |
 | D17 | check-count gauge | keep B's `checks` object (single-PR only) | ~50 B buys visible 3/4→4/4 progress without names; sourced free from aggregates |
 | D18 | `ci` field | raw rollup state verbatim, `"NONE"` when rollup null (A) | never invent synonyms for enums agents already know; C's PASSING/FAILING remap adds a translation layer |
@@ -50,7 +52,7 @@ One JSON object, one line, `\n`-terminated, UTF-8, no ANSI, stdout only. Field o
 | 4 | `blockers` | []string | **always, even `[]`** | needs action; grammar §1.3; cap 8, then `"+N more"` |
 | 5 | `pending` | []string | omit if empty | blocks merge but resolves on its own (required checks running, mergeable computing); cap 8 + `"+N more"` |
 | 6 | `non_blocking` | []string | omit if empty | advisory, excluded from fp: optional failing checks (with cifail handoff), `"<k> optional checks pending"` aggregate, hooks note, truncation notices; cap 5 |
-| 7 | `checks` | object | omit if no checks | ints `req_ok,req_fail,req_run,opt_fail,opt_run`, each omitted when 0; sourced from per-context walk + `checkRunCountsByState` aggregates |
+| 7 | `checks` | object | omit if no checks | ints `req_ok,req_fail,req_run,opt_fail,opt_run`, each omitted when 0; sourced from the walked contexts only (≤400; the count aggregates originally planned were not implemented — deviation #5) |
 | 8 | `unresolved_threads` | int | omit when 0 **and** not degraded | client-side count of `isResolved==false` |
 | 9 | `behind_by` | int | omit when 0 or unobtainable | from `baseRef.compare` (D2) |
 | 10 | `ci` | string | omit when no rollup and state not BLOCKED | raw `statusCheckRollup.state` verbatim; literal `"NONE"` when rollup is null (verified null happens: cli/cli#13781) |
@@ -113,7 +115,7 @@ blocked: cause not visible to this token (hidden protection rule, required deplo
 
 pending[] vocabulary: `check: '<name>' RUNNING`, `check: '<name>' PENDING`, `check: '<name>' EXPECTED`, `checks: <N> required running` (collapse when >3), `queue: position <N> <STATE> (~<X>m)`, `mergeable: still computing (retry budget exhausted)`.
 
-non_blocking[] vocabulary: `check: '<name>' FAILING (optional) -> …`, `<k> optional checks pending`, `hooks: pre-receive hooks run on merge`, `queue: ready to enqueue (merge queue enabled)`, `+<n> more checks not shown`.
+non_blocking[] vocabulary: `check: '<name>' FAILING (optional) -> …`, `<k> optional checks pending`, `hooks: pre-receive hooks run on merge`, `queue: ready to enqueue (merge queue enabled)`, and the generic overflow fold `+<n> more` (one cap over the whole list — since non_blocking mixes check lines with the hooks/queue/pending entries, the fold is not check-specific).
 
 ### 1.4 Fingerprint (`fp`)
 
@@ -200,7 +202,7 @@ Dedup: (a) DIRTY/CONFLICTING emit one conflict blocker; (b) queue membership sup
 
 ### 2.4 Degraded handling
 
-go-gh populates the response struct **before** returning `*GraphQLError` (source-verified in v2.12.2), so prq always synthesizes from whatever arrived:
+go-gh populates the response struct **before** returning `*GraphQLError` (source-verified; behavior unchanged through the shipped v2.13.0), so prq always synthesizes from whatever arrived:
 
 - `reviewThreads` errored → omit `unresolved_threads`, `degraded:["threads"]`, threads blocker disabled.
 - `isRequired` errored on all contexts → `degraded:["required"]`; **conservative fallback**: every failing check becomes a blocker (detail suffixed `(required?)`), every pending check → pending[]. Over-block rather than false-CLEAN.
@@ -222,28 +224,24 @@ Degradation changes the exit code only when it undermines a green/wait verdict (
 query PRState($owner:String!,$name:String!,$number:Int!,$headRef:String!) {
   repository(owner:$owner,name:$name) {
     pullRequest(number:$number) {
-      id number state isDraft locked
-      mergeable mergeStateStatus reviewDecision
-      isCrossRepository baseRefName headRefOid
-      isInMergeQueue isMergeQueueEnabled viewerCanUpdateBranch
+      id number state isDraft
+      mergeable mergeStateStatus reviewDecision baseRefName
+      isMergeQueueEnabled viewerCanUpdateBranch
       mergeQueueEntry { position state estimatedTimeToMerge }
       reviewRequests(first:20) { nodes { asCodeOwner } }
       reviewThreads(first:100) {
         totalCount pageInfo { hasNextPage endCursor } nodes { isResolved }
       }
       baseRef {
-        compare(headRef:$headRef) { aheadBy behindBy }
+        compare(headRef:$headRef) { behindBy }
         branchProtectionRule {
-          requiresStrictStatusChecks requiresConversationResolution
-          requiresCodeOwnerReviews requiredStatusCheckContexts
+          requiresConversationResolution requiredStatusCheckContexts
         }
       }
       statusCheckRollup {
         state
         contexts(first:100) {
           totalCount
-          checkRunCountsByState { state count }
-          statusContextCountsByState { state count }
           pageInfo { hasNextPage endCursor }
           nodes {
             __typename
@@ -264,7 +262,7 @@ query PRState($owner:String!,$name:String!,$number:Int!,$headRef:String!) {
 }
 ```
 
-Verified load-bearing facts: `PullRequest.statusCheckRollup` exists directly (no `commits(last:1)` hop); `isRequired` **requires** `pullRequestId` or `pullRequestNumber` even PR-rooted (error: "A pull request ID or pull request number is required", node nulled, partial data delivered); `mergeStateStatus` needs no preview header; `branchProtectionRule` returns silently-null for non-admins; `contexts(first:101)` → `EXCESSIVE_PAGINATION` **and nulls the rollup subtree** — never over-ask.
+Verified load-bearing facts: `PullRequest.statusCheckRollup` exists directly (no `commits(last:1)` hop); `isRequired` **requires** `pullRequestId` or `pullRequestNumber` even PR-rooted (error: "A pull request ID or pull request number is required", node nulled, partial data delivered); `mergeStateStatus` needs no preview header; `branchProtectionRule` returns silently-null for non-admins; `contexts(first:101)` → `EXCESSIVE_PAGINATION` **and nulls the rollup subtree** — never over-ask. The codeowner suffix is derived from `reviewRequests[].asCodeOwner`, not `requiresCodeOwnerReviews`; fields the synthesizer never reads (`headRefOid`, `locked`, `isCrossRepository`, `isInMergeQueue`, `aheadBy`, `requiresStrictStatusChecks`, and the per-state count aggregates) are deliberately not selected — the query above is exactly what ships.
 
 ### 3.2 Pagination
 
@@ -285,7 +283,7 @@ Verified load-bearing facts: `PullRequest.statusCheckRollup` exists directly (no
 
 `isRequired` cannot be evaluated inside `search()` nodes and its argument cannot vary per node in a static selection (verified) — hence two phases:
 
-**Request 1 — discovery + cheap facts** (`$q = "is:pr is:open author:@me archived:false repo:a/x repo:a/y"`; multiple `repo:` qualifiers OR — verified):
+**Request 1 — discovery + cheap facts** (`$q = "is:pr is:open author:@me archived:false sort:updated-desc repo:a/x repo:a/y"`; multiple `repo:` qualifiers OR — verified):
 
 ```graphql
 query Mine($q:String!,$limit:Int!) {
@@ -293,12 +291,10 @@ query Mine($q:String!,$limit:Int!) {
     issueCount
     nodes { ... on PullRequest {
       id number repository { nameWithOwner }
-      state isDraft mergeable mergeStateStatus reviewDecision
-      isInMergeQueue mergeQueueEntry { position state }
+      state isDraft mergeable mergeStateStatus reviewDecision baseRefName
+      isMergeQueueEnabled mergeQueueEntry { position state }
       reviewThreads(first:100) { totalCount nodes { isResolved } }
-      statusCheckRollup { state contexts(first:1) {
-        checkRunCountsByState { state count }
-        statusContextCountsByState { state count } } }
+      statusCheckRollup { state contexts(first:1) { totalCount } }
     } }
   }
 }
@@ -347,7 +343,7 @@ Branch resolution: `pullRequests(headRefName:…, states:OPEN, first:10)`; prefe
 |---|---|---|
 | `-R, --repo o/r` | cwd remote | repo context |
 | `--mine` | off | NDJSON multi-PR mode |
-| `--repos a/x,a/y` | current repo | scope for `--mine` (implies it); omitted with `--mine` → all `author:@me` |
+| `--repos a/x,a/y` | all `author:@me` | scope for `--mine` (implies it); omitted with `--mine` → all `author:@me` |
 | `--limit N` | 30 (max 100) | `--mine` discovery cap |
 | `--retry-budget dur` | `8s` | UNKNOWN retry wall budget; `0` disables |
 | `--no-retry` | off | alias for `--retry-budget 0` |
@@ -387,33 +383,40 @@ GHES: out of scope for v1. Host ≠ github.com → proceed best-effort with `deg
 
 ## 5. Go architecture
 
-**Dependencies: stdlib + `github.com/cli/go-gh/v2` pinned `v2.12.2`** (D1). **No cobra** (D16): one command, ≤8 flags; stdlib `flag`. When the toolchain moves to ≥1.25, bump go-gh to v2.13+ (used API surface unchanged).
+**Dependencies: stdlib + `github.com/cli/go-gh/v2` `v2.13.0`** (D1; the ≥1.25 toolchain bump this section once anticipated has landed — the go.mod floor is go 1.25.12). **No cobra** (D16): one command, ≤8 flags; stdlib `flag`.
+
+v1 folded the six packages first sketched here (`cli`/`ghx`/`query`/`output`/`run`) into `cmd/prq` plus four `internal/` packages; the responsibilities are unchanged, only the boundaries:
 
 ```
-cmd/prq/main.go          # thin: os.Exit(run.Run(ctx, cfg, os.Stdout, os.Stderr, client, clock))
-internal/cli/            # flag parsing (stdlib flag), selector parsing (number/URL/o#N/branch), config
-internal/ghx/            # type Doer interface { Do(ctx, query string, vars map[string]any, out any) error }
-                         # prod impl wraps go-gh api.GraphQLClient.DoWithContext; classifies
-                         # *api.HTTPError / *api.GraphQLError (with .Match) → typed prq errors
-internal/query/          # query constants, typed response structs, pagination walker,
-                         # --mine two-phase + 25-alias chunk builder, UNKNOWN slim probe
-internal/synth/          # PURE: Synthesize(Facts) Verdict — the §2 tables; zero I/O
-internal/output/         # ordered structs → deterministic JSON (SetEscapeHTML(false)),
-                         # fp canonicalization + sha256, NDJSON encoder
-internal/run/            # orchestration: fetch → retry loop (injected clock) → synth → print;
-                         # returns exit code as int
+cmd/prq/main.go          # thin entry: os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, deps))
+                         # + ambient git helpers (current repo/branch, origin-URL parsing)
+cmd/prq/run.go           # flag parsing (stdlib flag) + selector parsing (number/URL/o#N/branch),
+                         # orchestration (resolve → fetch → synth → print), §4.3 exit-code mapping,
+                         # error-taxonomy emit, deterministic JSON writer (SetEscapeHTML(false));
+                         # the retry clock is injected as deps.sleep (a fetch.SleepFunc)
+internal/gh/             # type Doer interface { Do(ctx, query, vars, out) error }; prod impl wraps
+                         # go-gh api.GraphQLClient.DoWithContext; Classify(*api.HTTPError /
+                         # *api.GraphQLError) → typed prq errors; Partial/PartialItems degradation
+internal/fetch/          # query constants, typed response structs, pagination walker, normalize,
+                         # UNKNOWN slim-probe ladder (fetch.go); --mine two-phase + 25-alias chunk
+                         # builder (mine.go)
+internal/synth/          # PURE: Synthesize/Summarize(Input) Report — the §2 tables; zero I/O; also
+                         # owns the wire Report struct, fp canonicalization + sha256, and the caps
+internal/version/        # build identity: ldflags-injected Version/Commit/Date, VCS-stamp fallback
 ```
+
+(`internal/output`'s job is split — synth owns the `Report` struct + fp, run.go owns `writeJSON`; `internal/run` is just `cmd/prq/run.go`.)
 
 Test seams (both used):
-1. `synth.Synthesize` takes plain structs — the whole decision table tests with zero HTTP.
-2. End-to-end: real go-gh client via `api.NewGraphQLClient(api.ClientOptions{AuthToken:"test", Host:…, Transport: fake})` (Transport is the documented test hook; go-gh delivers partial data before typed errors — source-verified). The fake/httptest server is a **script**: ordered steps `{match: operation-name or query substring, status, bodyFile, assertVars}`; unconsumed or over-consumed steps fail the test. Fixtures are verbatim response bodies captured from the live probes (checkless #13781, blocked-all-green #13665/#13787, merged #13786, closed #13782, NOT_FOUND shape, EXCESSIVE_PAGINATION shape).
-3. Sleeps via injected clock; `run.Run` returns the exit code — no subprocesses. Golden files under `testdata/golden/` compared byte-exact (`-update` to regenerate).
+1. `synth.Synthesize`/`Summarize` take plain `Input` structs — the whole §2 decision table tests with zero HTTP (internal/synth/synth_test.go).
+2. The `gh.Doer` interface is the one transport seam: tests substitute a package-local `fakeDoer` that replays canned `{body, err}` responses in order, matching go-gh's real contract (a response may carry BOTH a partial body AND an `*api.GraphQLError`, so the degraded paths test exactly). Fixtures are inline JSON string literals, not captured files; `fakeDoer` records the queries/vars it saw, so tests assert operation names (PRProbe/PRContexts/PRThreads/MineDetail), cursors, and the `isRequired(pullRequestId:)` chunk shape.
+3. Sleeps inject via `deps.sleep`; `run(args, stdout, stderr, deps)` returns the exit code directly — no subprocesses, no golden files. Determinism is asserted by running a fixture twice and comparing bytes (run_test.go), and the §1.5 byte budgets by `len()` bounds (≤1024 single, ≤256 per --mine line).
 
 ### 5.1 Test plan (ordered; all headless; `go build ./... && go vet ./... && go test ./...` green)
 
 | # | case | fixture/source | asserts |
 |---|---|---|---|
-| 1 | clean PR | synthetic | golden stdout, `blockers:[]`, exit 0, ≤120 B |
+| 1 | clean PR | synthetic | exact stdout, `blockers:[]`, exit 0, ≤120 B |
 | 2 | draft + failing required + behind + threads | synthetic busy | 4 blockers in precedence order, exact cifail string, len ≤ 1024 |
 | 3 | checkless (`statusCheckRollup:null`) | live #13781 capture | `ci:"NONE"`, draft blocker only |
 | 4 | BLOCKED with all-green / zero required contexts | live #13665/#13787 captures | residual `blocked:` blocker; with BPR fixture → `MISSING` blockers instead |
@@ -444,15 +447,17 @@ Test seams (both used):
 
 ## Unverified / implementation-time checks
 
-1. **Live merge-queue entry payload** — `mergeQueueEntry{position,state,estimatedTimeToMerge}` is introspection-verified (`position`/`state` NON_NULL; description says `estimatedTimeToMerge` is **seconds**), but no populated public queue was caught; runtime nullness of `estimatedTimeToMerge` unproven. *Check:* keep a `//go:build live` smoke test targeting a queued PR (github/docs, bevyengine/bevy drain fast — poll during implementation); parse defensively (`eta_s` omitted on null).
-2. **`NEUTRAL`/`SKIPPED` satisfying required checks** — docs-based. *Check:* create a required-but-skipped check in a scratch repo during implementation; if wrong, the residual-BLOCKED path still fires (fail-safe).
-3. **Ready-to-enqueue inference** (BLOCKED + all green + `isMergeQueueEnabled` ⇒ CLEAN + `queue.required`) — matches observed behavior, but BLOCKED semantics may drift (that opacity is cli/cli#10775). *Check:* validate on a real queue-enabled repo before release; the `blocked:` residual fallback guarantees no unexplained empty-blocker BLOCKED either way.
-4. **`HAS_HOOKS` in the wild** — mapping to CLEAN is by enum description (GHES pre-receive). *Check:* none possible on github.com; revisit if a GHES user reports.
-5. **Fine-grained PAT / SAML error shapes** — classifier is built on go-gh's typed `HTTPError`/`GraphQLError.Match` with path-based degradation regardless of error `type`. *Check:* run once with a fine-grained token during implementation; the classifier is one function with fixtures, cheap to correct.
-6. **`isRequired` under repository rulesets** (vs classic branch protection) and the positive fork case (fork PR with *reported* required checks) — expected to work (evaluated against base-repo rules). *Check:* one live probe on a ruleset-protected repo during implementation.
-7. **`refs/pull/N/head` compare on just-closed PRs / GC'd refs** — verified on open PRs incl. forks. Fallback already specified: compare failure → `behind: out of date` form + `degraded:["behind"]`.
-8. **reviewThreads page-size max = 100** — assumed from the contexts `EXCESSIVE_PAGINATION` proof; not separately probed. *Check:* one `first:101` probe; if higher, nothing changes (100 stays the page size).
-9. **`--mine` at scale** — 25-alias chunks with 100-check PRs not stress-tested against node budgets; discovery beyond `first:100` unpaginated by design (`truncated` line). *Check:* one synthetic 25×100 request during implementation; shrink chunk size if the node-limit error appears.
+**Live re-check 2026-07-12** (github.com GraphQL, gh authenticated): items 1 (schema), **7**, **8**, and **9** are now confirmed (✓). Items 2–6 still need a setup not available on demand — a scratch repo, a live populated merge queue, a fine-grained PAT, or a ruleset-protected repo — and stay open; all remain fail-safe as shipped.
+
+1. **Live merge-queue entry payload** — ✓ *schema* confirmed by introspection: `MergeQueueEntry.position`/`state` are `NON_NULL`, `estimatedTimeToMerge` is a **nullable** `Int` (SCALAR, not `NON_NULL`) — so `eta_s` genuinely can be null, which `normalize` already handles (`-1` sentinel, `eta_s` omitted on null). *Still open:* the runtime value on a populated public queue (no live queued PR was caught). Parse stays defensive.
+2. **`NEUTRAL`/`SKIPPED` satisfying required checks** — docs-based; open. *Check:* a required-but-skipped check in a scratch repo. If wrong, the residual-BLOCKED path still fires (fail-safe).
+3. **Ready-to-enqueue inference** (BLOCKED + all green + `isMergeQueueEnabled` ⇒ CLEAN + `queue.required`) — open; matches observed behavior, but BLOCKED semantics may drift (cli/cli#10775). *Check:* a real queue-enabled repo; the `blocked:` residual fallback guarantees no unexplained empty-blocker BLOCKED either way.
+4. **`HAS_HOOKS` in the wild** — GHES-only (pre-receive hooks); not reproducible on github.com. Revisit if a GHES user reports.
+5. **Fine-grained PAT / SAML error shapes** — open; the classifier is path-based over go-gh's typed `HTTPError`/`GraphQLError`, so the error `type` does not matter. *Check:* one run with a fine-grained token; the classifier is one function with fixtures, cheap to correct.
+6. **`isRequired` under repository rulesets** (vs classic branch protection) and the positive fork case (fork PR with *reported* required checks) — open; expected to work (evaluated against base-repo rules). *Check:* one live probe on a ruleset-protected repo.
+7. **`refs/pull/N/head` compare on closed / GC'd PRs** — ✓ verified 2026-07-12: `baseRef.compare(headRef:"refs/pull/N/head")` resolves cleanly on both closed-unmerged (cli/cli#13845, #13829) and *merged* (cli/cli#13832, #13830) PRs — the ref is not GC'd on close, so the compare does not fail. (The same probes re-confirmed D5: merged → `mergeable`/`mergeStateStatus` `UNKNOWN`, closed-unmerged → stale `mergeStateStatus:BLOCKED`.) The `behind: out of date` + `degraded:["behind"]` fallback stays as a belt-and-braces path.
+8. **reviewThreads page-size max = 100** — ✓ verified 2026-07-12: `reviewThreads(first:101)` returns `EXCESSIVE_PAGINATION` ("exceeds the `first` limit of 100 records") and nulls the PR — the same shape as contexts. 100 is the correct page size.
+9. **`--mine` at scale** — ✓ verified 2026-07-12: a real 25-alias `node(id:)` document (each `contexts(first:50)` with per-node `isRequired(pullRequestId:)`, over 25 live PRs) resolves with no node-budget error. Per-PR contexts are capped at `first:50` (→ ≤~1275 context nodes per 25-alias chunk, far under GitHub's node limit), and any PR with >50 contexts trips `hasNextPage` → `checks_truncated`, so the budget is bounded by design. Discovery beyond `first:100` stays unpaginated (`truncated` line).
 
 ---
 
