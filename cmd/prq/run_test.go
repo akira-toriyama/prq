@@ -436,3 +436,79 @@ func TestRunReposWithOnlyEmptyEntriesIsUsage(t *testing.T) {
 		t.Fatalf("exit = %d, want 64 (must not silently widen scope)", code)
 	}
 }
+
+// TestRunExitTwoPollAgain covers the §4.3 "time will change it" exit code — the
+// polling contract every babysit loop rides on — for each of its three states.
+func TestRunExitTwoPollAgain(t *testing.T) {
+	t.Run("queued PR", func(t *testing.T) {
+		body := `{"repository":{"pullRequest":{
+			"id":"PR_x","number":1,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED",
+			"baseRefName":"main",
+			"mergeQueueEntry":{"position":2,"state":"AWAITING_CHECKS","estimatedTimeToMerge":600},
+			"reviewThreads":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]},
+			"statusCheckRollup":null}}}`
+		var stdout, stderr bytes.Buffer
+		d := testDeps(t, &fakeDoer{t: t, responses: []fakeResp{{body: body}}})
+		if code := run([]string{"1", "-R", "o/r"}, &stdout, &stderr, d); code != 2 {
+			t.Fatalf("exit = %d, want 2 (queued → poll again); stderr: %s", code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), `"state":"QUEUED"`) {
+			t.Errorf("stdout = %s", stdout.String())
+		}
+	})
+	t.Run("exhausted UNKNOWN with --no-retry", func(t *testing.T) {
+		body := `{"repository":{"pullRequest":{
+			"id":"PR_x","number":1,"state":"OPEN","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN",
+			"baseRefName":"main",
+			"reviewThreads":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]},
+			"statusCheckRollup":null}}}`
+		var stdout, stderr bytes.Buffer
+		d := testDeps(t, &fakeDoer{t: t, responses: []fakeResp{{body: body}}})
+		if code := run([]string{"1", "-R", "o/r", "--no-retry"}, &stdout, &stderr, d); code != 2 {
+			t.Fatalf("exit = %d, want 2 (UNKNOWN → poll again); stderr: %s", code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), `"state":"UNKNOWN"`) {
+			t.Errorf("stdout = %s", stdout.String())
+		}
+	})
+	t.Run("running required check is PENDING", func(t *testing.T) {
+		body := `{"repository":{"pullRequest":{
+			"id":"PR_x","number":1,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED",
+			"baseRefName":"main",
+			"reviewThreads":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]},
+			"statusCheckRollup":{"state":"PENDING","contexts":{"totalCount":1,"pageInfo":{"hasNextPage":false},
+				"nodes":[{"__typename":"CheckRun","name":"build","status":"IN_PROGRESS","isRequired":true}]}}}}}`
+		var stdout, stderr bytes.Buffer
+		d := testDeps(t, &fakeDoer{t: t, responses: []fakeResp{{body: body}}})
+		if code := run([]string{"1", "-R", "o/r"}, &stdout, &stderr, d); code != 2 {
+			t.Fatalf("exit = %d, want 2 (pending → poll again); stderr: %s", code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), `"state":"PENDING"`) {
+			t.Errorf("stdout = %s", stdout.String())
+		}
+	})
+}
+
+// TestRunGHESDegradedSoftThree exercises the non-github.com host path: a clean
+// verdict on a GHES host carries degraded:["ghes"], which is not certifiable
+// (soft-3) — a loop must not treat an unverifiable green as mergeable.
+func TestRunGHESDegradedSoftThree(t *testing.T) {
+	resolve := `{"repository":{"pullRequests":{"nodes":[{"number":1,"isCrossRepository":false}]}}}`
+	body := `{"repository":{"pullRequest":{
+		"id":"PR_x","number":1,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN",
+		"baseRefName":"main",
+		"reviewThreads":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]},
+		"statusCheckRollup":null}}}`
+	d := testDeps(t, &fakeDoer{t: t, responses: []fakeResp{{body: resolve}, {body: body}}})
+	d.currentRepo = func() (string, string, string, error) { return "ghe.example.com", "o", "r", nil }
+	var stdout, stderr bytes.Buffer
+	if code := run(nil, &stdout, &stderr, d); code != 3 {
+		t.Fatalf("exit = %d, want 3 (GHES degraded green is not certifiable); stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"degraded":["ghes"]`) {
+		t.Errorf("stdout should carry degraded ghes: %s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("soft-3 keeps stderr empty: %s", stderr.String())
+	}
+}

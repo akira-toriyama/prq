@@ -682,4 +682,114 @@ func TestLineAndListCaps(t *testing.T) {
 			t.Errorf("summary line = %q", last)
 		}
 	})
+	t.Run("non_blocking overflow count is accurate (single cap)", func(t *testing.T) {
+		// 7 optional failing checks, nothing else: the fold line must report
+		// the true hidden count (2), not an undercount from a second capping
+		// pass over a summary line it could not parse.
+		i := open()
+		i.MergeState = "UNSTABLE"
+		for n := 0; n < 7; n++ {
+			i.Contexts = append(i.Contexts, Context{Kind: "check", Name: fmt.Sprintf("opt%d", n),
+				Status: "COMPLETED", Conclusion: "FAILURE"})
+		}
+		r := Synthesize(i)
+		if len(r.NonBlocking) != capNonBlocking+1 {
+			t.Fatalf("non_blocking = %d entries (%q), want %d + summary", len(r.NonBlocking), r.NonBlocking, capNonBlocking)
+		}
+		if got := r.NonBlocking[capNonBlocking]; got != "+2 more" {
+			t.Errorf("fold line = %q, want %q (7 fails - 5 shown)", got, "+2 more")
+		}
+	})
+}
+
+func TestQueueOutput(t *testing.T) {
+	t.Run("ready to enqueue emits queue.required and CLEAN", func(t *testing.T) {
+		i := open()
+		i.MergeState = "BLOCKED"
+		i.ReviewDecision = "APPROVED"
+		i.QueueEnabled = true
+		r := Synthesize(i)
+		if r.Queue == nil || !r.Queue.Required || r.Queue.Position != 0 || r.Queue.State != "" || r.Queue.ETASec != 0 {
+			t.Errorf("queue = %+v, want {required:true} only", r.Queue)
+		}
+		if r.State != StateClean {
+			t.Errorf("state = %q, want CLEAN", r.State)
+		}
+	})
+	t.Run("progressing queue emits position+state+eta", func(t *testing.T) {
+		i := open()
+		i.Queue = &Queue{Position: 3, State: "AWAITING_CHECKS", ETASec: 840}
+		r := Synthesize(i)
+		if r.Queue == nil || r.Queue.Position != 3 || r.Queue.State != "AWAITING_CHECKS" || r.Queue.ETASec != 840 {
+			t.Errorf("queue = %+v, want {3, AWAITING_CHECKS, 840}", r.Queue)
+		}
+		if r.Queue.Required {
+			t.Error("a progressing queue must not set required")
+		}
+		if r.State != StateQueued {
+			t.Errorf("state = %q, want QUEUED", r.State)
+		}
+	})
+	t.Run("null eta omits eta_s", func(t *testing.T) {
+		i := open()
+		i.Queue = &Queue{Position: 1, State: "QUEUED", ETASec: -1}
+		if r := Synthesize(i); r.Queue == nil || r.Queue.ETASec != 0 {
+			t.Errorf("queue eta = %+v, want omitted on null", r.Queue)
+		}
+	})
+	t.Run("summarize drops queue eta but keeps position/state", func(t *testing.T) {
+		i := open()
+		i.Queue = &Queue{Position: 3, State: "AWAITING_CHECKS", ETASec: 840}
+		s := Summarize(i)
+		if s.Queue == nil || s.Queue.ETASec != 0 {
+			t.Errorf("mine queue = %+v, want eta dropped", s.Queue)
+		}
+		if s.Queue.Position != 3 || s.Queue.State != "AWAITING_CHECKS" {
+			t.Errorf("mine queue lost position/state: %+v", s.Queue)
+		}
+	})
+}
+
+func TestFailedLineFallbacks(t *testing.T) {
+	t.Run("app check with null workflowRun falls back to detailsUrl", func(t *testing.T) {
+		i := open()
+		i.MergeState = "BLOCKED"
+		i.Contexts = []Context{{Kind: "check", Name: "CodeQL", Status: "COMPLETED",
+			Conclusion: "FAILURE", Required: true, RunID: 0,
+			URL: "https://github.com/o/r/security/code-scanning"}}
+		r := Synthesize(i)
+		want := []string{"check: 'CodeQL' FAILING -> https://github.com/o/r/security/code-scanning"}
+		if !reflect.DeepEqual(r.Blockers, want) {
+			t.Errorf("blockers = %q, want %q", r.Blockers, want)
+		}
+	})
+	t.Run("failing check with neither run id nor url is bare", func(t *testing.T) {
+		i := open()
+		i.MergeState = "BLOCKED"
+		i.Contexts = []Context{{Kind: "check", Name: "x", Status: "COMPLETED",
+			Conclusion: "FAILURE", Required: true}}
+		r := Synthesize(i)
+		want := []string{"check: 'x' FAILING"}
+		if !reflect.DeepEqual(r.Blockers, want) {
+			t.Errorf("blockers = %q, want %q", r.Blockers, want)
+		}
+	})
+}
+
+func TestCountOnlyThreads(t *testing.T) {
+	// Unresolved threads without a conversation-resolution rule surface only as
+	// the unresolved_threads field — no blocker (§2.2).
+	i := open()
+	i.UnresolvedThreads = 3
+	i.ConvResolution = false
+	r := Synthesize(i)
+	if len(r.Blockers) != 0 {
+		t.Errorf("blockers = %q, want none (count-only)", r.Blockers)
+	}
+	if r.UnresolvedThreads != 3 {
+		t.Errorf("unresolved_threads = %d, want 3", r.UnresolvedThreads)
+	}
+	if r.State != StateClean {
+		t.Errorf("state = %q, want CLEAN", r.State)
+	}
 }
