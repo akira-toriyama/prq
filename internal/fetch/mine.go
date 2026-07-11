@@ -206,13 +206,6 @@ func resolveDetail(ctx context.Context, c gh.Doer, inputs []synth.Input, ids []s
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func appendToken(list []string, token string) []string {
 	for _, t := range list {
 		if t == token {
