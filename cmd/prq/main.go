@@ -45,6 +45,8 @@ func originRepo() (host, owner, name string, err error) {
 	if err != nil {
 		return "", "", "", err
 	}
+	// #nosec G204 -- fixed program (safeexec-resolved `git`) with prq-controlled
+	// subcommands; no user input reaches the argv.
 	out, err := exec.Command(gitExe, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return "", "", "", fmt.Errorf("no origin remote")
@@ -94,6 +96,8 @@ func currentBranch() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// #nosec G204 -- fixed program (safeexec-resolved `git`) with prq-controlled
+	// subcommands; no user input reaches the argv.
 	out, err := exec.Command(gitExe, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine current branch (detached HEAD?)")

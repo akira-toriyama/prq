@@ -1,0 +1,45 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: this workflow only reads the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Shared Go CI core (build / vet / race-test / module-hygiene / golangci-lint v2),
+  # SHA-pinned once in the hub. The go.mod floor is a patched supported minor, so
+  # go-version-file drives the build toolchain.
+  ci:
+    uses: akira-toriyama/.github/.github/workflows/go-ci.yml@v1
+    with:
+      go-version-file: go.mod
+
+  # Repo-specific check: exercise the shipped binary on both OSes the core test
+  # job (build + unit tests) doesn't separately cover.
+  extras:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: smoke test
+        run: |
+          go build -o /tmp/prq ./cmd/prq
+          /tmp/prq --version
+          /tmp/prq --help >/dev/null

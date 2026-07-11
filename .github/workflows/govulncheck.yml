@@ -1,0 +1,28 @@
+name: govulncheck
+
+# Supply-chain gate via the shared go-vuln reusable: govulncheck of the source
+# (`./...`) and the compiled binary (`-mode binary`). Runs on push/PR AND a daily
+# cron so a vuln disclosed after merge — no code change — is caught within a day.
+# The scan logic and its action pins live once in the hub; this caller only wires
+# the trigger and the binary path.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 2 * * *' # daily — catches vulns disclosed after merge
+
+permissions:
+  contents: read
+
+concurrency:
+  group: govulncheck-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    uses: akira-toriyama/.github/.github/workflows/go-vuln.yml@v1
+    with:
+      go-version-file: go.mod
+      binary-path: ./cmd/prq
