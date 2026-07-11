@@ -1,0 +1,52 @@
+# golangci-lint v2 config for prq. Conservative, fast linters that catch real
+# bugs and keep style consistent without fighting the developer.
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+    - revive
+    - gosec
+  settings:
+    gosec:
+      # Scope gosec to the exec/file-injection rules that matter for a tool that
+      # shells out to git/gh; the rest is noise for a single-binary CLI. The two
+      # exec sites carry sparse, justified `#nosec G204` directives.
+      includes:
+        - G204 # subprocess launched with a non-constant argument
+        - G304 # file read from a non-constant path
+    errcheck:
+      # Writes to stdout/stderr via fmt.Fprint* in a CLI are best-effort (a
+      # broken pipe is not actionable); don't require checking them.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    revive:
+      rules:
+        # cobra RunE handlers have a fixed (cmd, args) signature; an unused one
+        # is unavoidable, not a smell.
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    rules:
+      # tests may ignore errors freely and shell out to git in helpers (the exec
+      # surface gosec flags is test-only, not a security boundary).
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

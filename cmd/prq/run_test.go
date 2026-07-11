@@ -106,7 +106,8 @@ func TestRunDeterministicBytes(t *testing.T) {
 		run([]string{"13781", "-R", "cli/cli"}, &stdout, &stderr, d)
 		return stdout.String()
 	}
-	if out() != out() {
+	first, second := out(), out()
+	if first != second {
 		t.Error("identical facts produced different bytes")
 	}
 }

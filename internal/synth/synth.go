@@ -617,8 +617,11 @@ func recap(list []string, limit int) []string {
 	last := list[len(list)-1]
 	if strings.HasPrefix(last, "+") && strings.HasSuffix(last, " more") {
 		var n int
-		fmt.Sscanf(last, "+%d more", &n)
-		hidden = hidden - 1 + n
+		// A malformed "+… more" line (n unparsed) is folded back as a real item
+		// rather than dropping its hidden count.
+		if _, err := fmt.Sscanf(last, "+%d more", &n); err == nil {
+			hidden = hidden - 1 + n
+		}
 	}
 	out := append([]string{}, list[:limit]...)
 	return append(out, fmt.Sprintf("+%d more", hidden))
