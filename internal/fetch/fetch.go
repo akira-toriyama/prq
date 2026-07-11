@@ -27,44 +27,11 @@ const (
 	maxThreadPages  = 5
 )
 
-const prCoreQuery = `
-query PRState($owner: String!, $name: String!, $number: Int!, $headRef: String!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      id
-      number
-      state
-      isDraft
-      locked
-      mergeable
-      mergeStateStatus
-      reviewDecision
-      isCrossRepository
-      baseRefName
-      headRefOid
-      isInMergeQueue
-      isMergeQueueEnabled
-      viewerCanUpdateBranch
-      mergeQueueEntry { position state estimatedTimeToMerge }
-      reviewRequests(first: 20) { nodes { asCodeOwner } }
-      reviewThreads(first: 100) {
-        totalCount
-        pageInfo { hasNextPage endCursor }
-        nodes { isResolved }
-      }
-      baseRef {
-        compare(headRef: $headRef) { aheadBy behindBy }
-        branchProtectionRule {
-          requiresStrictStatusChecks
-          requiresConversationResolution
-          requiredStatusCheckContexts
-        }
-      }
-      statusCheckRollup {
-        state
-        contexts(first: 100) {
-          totalCount
-          pageInfo { hasNextPage endCursor }
+// ctxNodeFields is the CheckRun/StatusContext selection shared by the core
+// query and the contexts-pagination follow-up so the two can never drift.
+// Both evaluate isRequired against $number; the --mine detail query keys it on
+// a node id instead (mine.go) and so does not share this fragment.
+const ctxNodeFields = `
           nodes {
             __typename
             ... on CheckRun {
@@ -81,7 +48,46 @@ query PRState($owner: String!, $name: String!, $number: Int!, $headRef: String!)
               targetUrl
               isRequired(pullRequestNumber: $number)
             }
-          }
+          }`
+
+// prCoreQuery is the single-PR fetch (§3.1). It selects only fields the
+// synthesizer reads: headRefOid, locked, isInMergeQueue, aheadBy, and
+// requiresStrictStatusChecks are deliberately NOT fetched — nothing consumes
+// them (the merge-queue verdict comes from mergeQueueEntry, and the fp excludes
+// headRefOid by construction — D7).
+const prCoreQuery = `
+query PRState($owner: String!, $name: String!, $number: Int!, $headRef: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      number
+      state
+      isDraft
+      mergeable
+      mergeStateStatus
+      reviewDecision
+      baseRefName
+      isMergeQueueEnabled
+      viewerCanUpdateBranch
+      mergeQueueEntry { position state estimatedTimeToMerge }
+      reviewRequests(first: 20) { nodes { asCodeOwner } }
+      reviewThreads(first: 100) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { isResolved }
+      }
+      baseRef {
+        compare(headRef: $headRef) { behindBy }
+        branchProtectionRule {
+          requiresConversationResolution
+          requiredStatusCheckContexts
+        }
+      }
+      statusCheckRollup {
+        state
+        contexts(first: 100) {
+          totalCount
+          pageInfo { hasNextPage endCursor }` + ctxNodeFields + `
         }
       }
     }
@@ -102,24 +108,7 @@ query PRContexts($owner: String!, $name: String!, $number: Int!, $cursor: String
     pullRequest(number: $number) {
       statusCheckRollup {
         contexts(first: 100, after: $cursor) {
-          pageInfo { hasNextPage endCursor }
-          nodes {
-            __typename
-            ... on CheckRun {
-              name
-              status
-              conclusion
-              detailsUrl
-              isRequired(pullRequestNumber: $number)
-              checkSuite { workflowRun { databaseId } }
-            }
-            ... on StatusContext {
-              context
-              state
-              targetUrl
-              isRequired(pullRequestNumber: $number)
-            }
-          }
+          pageInfo { hasNextPage endCursor }` + ctxNodeFields + `
         }
       }
     }
@@ -188,14 +177,10 @@ type prNode struct {
 	Number                int    `json:"number"`
 	State                 string `json:"state"`
 	IsDraft               bool   `json:"isDraft"`
-	Locked                bool   `json:"locked"`
 	Mergeable             string `json:"mergeable"`
 	MergeStateStatus      string `json:"mergeStateStatus"`
 	ReviewDecision        string `json:"reviewDecision"`
-	IsCrossRepository     bool   `json:"isCrossRepository"`
 	BaseRefName           string `json:"baseRefName"`
-	HeadRefOid            string `json:"headRefOid"`
-	IsInMergeQueue        bool   `json:"isInMergeQueue"`
 	IsMergeQueueEnabled   bool   `json:"isMergeQueueEnabled"`
 	ViewerCanUpdateBranch bool   `json:"viewerCanUpdateBranch"`
 	Repository            *struct {
@@ -220,11 +205,9 @@ type prNode struct {
 	} `json:"reviewThreads"`
 	BaseRef *struct {
 		Compare *struct {
-			AheadBy  int `json:"aheadBy"`
 			BehindBy int `json:"behindBy"`
 		} `json:"compare"`
 		BranchProtectionRule *struct {
-			RequiresStrictStatusChecks     bool     `json:"requiresStrictStatusChecks"`
 			RequiresConversationResolution bool     `json:"requiresConversationResolution"`
 			RequiredStatusCheckContexts    []string `json:"requiredStatusCheckContexts"`
 		} `json:"branchProtectionRule"`

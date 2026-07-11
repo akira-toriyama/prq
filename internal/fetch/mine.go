@@ -29,12 +29,10 @@ query Mine($q: String!, $limit: Int!) {
         repository { nameWithOwner }
         state
         isDraft
-        locked
         mergeable
         mergeStateStatus
         reviewDecision
         baseRefName
-        isInMergeQueue
         isMergeQueueEnabled
         mergeQueueEntry { position state }
         reviewThreads(first: 100) { totalCount nodes { isResolved } }
