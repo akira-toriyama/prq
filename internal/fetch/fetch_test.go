@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -473,6 +474,114 @@ func TestMineNodeScopedDegradation(t *testing.T) {
 			if has || !in.ThreadsKnown {
 				t.Errorf("o/x must NOT be smeared: degraded=%v threadsKnown=%v", in.Degraded, in.ThreadsKnown)
 			}
+		}
+	}
+}
+
+func TestPRPaginatesThreads(t *testing.T) {
+	page1 := `{"repository":{"pullRequest":{
+		"id":"PR_x","number":1,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN",
+		"baseRefName":"main",
+		"reviewThreads":{"totalCount":150,"pageInfo":{"hasNextPage":true,"endCursor":"T1"},
+			"nodes":[{"isResolved":false},{"isResolved":true}]},
+		"statusCheckRollup":null}}}`
+	page2 := `{"repository":{"pullRequest":{"reviewThreads":{
+		"pageInfo":{"hasNextPage":false},
+		"nodes":[{"isResolved":false},{"isResolved":false}]}}}}`
+	d := &fakeDoer{t: t, responses: []fakeResp{{body: page1}, {body: page2}}}
+	in, err := PR(ctxTest(), d, noSleep, "o", "r", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.UnresolvedThreads != 3 { // 1 from page 1 + 2 from page 2
+		t.Errorf("unresolved = %d, want 3 (summed across pages)", in.UnresolvedThreads)
+	}
+	if len(d.queries) != 2 || !strings.Contains(d.queries[1], "PRThreads") {
+		t.Fatalf("expected the threads page query, got %d calls", len(d.queries))
+	}
+	if c, _ := d.vars[1]["cursor"].(string); c != "T1" {
+		t.Errorf("cursor = %q, want T1", c)
+	}
+}
+
+func TestPRThreadPageCap(t *testing.T) {
+	first := `{"repository":{"pullRequest":{
+		"id":"PR_x","number":1,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN",
+		"baseRefName":"main",
+		"reviewThreads":{"totalCount":600,"pageInfo":{"hasNextPage":true,"endCursor":"T"},"nodes":[]},
+		"statusCheckRollup":null}}}`
+	page := `{"repository":{"pullRequest":{"reviewThreads":{
+		"pageInfo":{"hasNextPage":true,"endCursor":"T"},"nodes":[]}}}}`
+	d := &fakeDoer{t: t, responses: []fakeResp{
+		{body: first}, {body: page}, {body: page}, {body: page}, {body: page},
+	}}
+	in, err := PR(ctxTest(), d, noSleep, "o", "r", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.queries) != 5 { // full + pages 2..5; page 6 hits the cap
+		t.Errorf("made %d calls, want 5", len(d.queries))
+	}
+	found := false
+	for _, tok := range in.Degraded {
+		if tok == "threads_truncated" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("degraded = %v, want threads_truncated", in.Degraded)
+	}
+}
+
+func TestMineChunksBeyond25(t *testing.T) {
+	// 26 PRs that all need phase-2 detail (BLOCKED) → two detail requests,
+	// chunks of 25 + 1 (design §5.1 case 20: 25-alias chunking).
+	var nodes []string
+	for n := 1; n <= 26; n++ {
+		nodes = append(nodes, fmt.Sprintf(`{"id":"PR_%d","number":%d,"repository":{"nameWithOwner":"o/r"},"state":"OPEN",
+			"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","baseRefName":"main",
+			"reviewThreads":{"totalCount":0,"nodes":[]},
+			"statusCheckRollup":{"state":"FAILURE","contexts":{"totalCount":1}}}`, n, n))
+	}
+	search := `{"search":{"issueCount":26,"nodes":[` + strings.Join(nodes, ",") + `]}}`
+	detail := func(count int) string {
+		var b strings.Builder
+		b.WriteString("{")
+		for k := 0; k < count; k++ {
+			if k > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `"a%d":{"statusCheckRollup":{"contexts":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}`, k)
+		}
+		b.WriteString("}")
+		return b.String()
+	}
+	d := &fakeDoer{t: t, responses: []fakeResp{
+		{body: search}, {body: detail(25)}, {body: detail(1)},
+	}}
+	res, err := Mine(ctxTest(), d, []string{"o/r"}, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Inputs) != 26 {
+		t.Fatalf("inputs = %d, want 26", len(res.Inputs))
+	}
+	if len(d.queries) != 3 {
+		t.Fatalf("made %d calls, want 3 (search + 2 detail chunks)", len(d.queries))
+	}
+	if !strings.Contains(d.queries[1], "MineDetail") || !strings.Contains(d.queries[2], "MineDetail") {
+		t.Error("both phase-2 queries should be MineDetail documents")
+	}
+	// chunk 1 = 25 aliases a0..a24; chunk 2 = 1 alias a0 (each chunk 0-based).
+	if !strings.Contains(d.queries[1], "a24: node(") || strings.Contains(d.queries[1], "a25: node(") {
+		t.Error("first chunk should hold exactly 25 aliases a0..a24")
+	}
+	if !strings.Contains(d.queries[2], "a0: node(") || strings.Contains(d.queries[2], "a1: node(") {
+		t.Error("second chunk should hold exactly 1 alias a0")
+	}
+	for _, in := range res.Inputs {
+		if !in.RequiredKnown {
+			t.Errorf("%s#%d: phase-2 detail not applied", in.Repo, in.Number)
 		}
 	}
 }
