@@ -14,10 +14,8 @@ import (
 	"github.com/akira-toriyama/prq/internal/fetch"
 	"github.com/akira-toriyama/prq/internal/gh"
 	"github.com/akira-toriyama/prq/internal/synth"
+	"github.com/akira-toriyama/prq/internal/version"
 )
-
-// version is stamped by goreleaser via ldflags.
-var version = "dev"
 
 const usage = `prq — one-call PR state synthesis: why is this PR blocked?
 
@@ -84,7 +82,7 @@ func run(args []string, stdout, stderr io.Writer, d deps) int {
 		rest = fs.Args()[1:]
 	}
 	if showVersion {
-		fmt.Fprintln(stdout, "prq "+version)
+		fmt.Fprintln(stdout, "prq "+version.Resolve().String())
 		return 0
 	}
 	if noRetry {
