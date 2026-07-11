@@ -66,12 +66,25 @@ The full contract — output schema, blocker grammar, the complete
 canonicalization — lives in [docs/design.md](docs/design.md). Facts there were
 verified against the live GitHub GraphQL schema.
 
-## Install / develop
+## Install
+
+```sh
+brew install akira-toriyama/tap/prq
+# or
+go install github.com/akira-toriyama/prq/cmd/prq@latest
+# or from a checkout
+./install.sh            # → ~/.local/bin/prq
+# or with nix
+nix run github:akira-toriyama/prq -- --help
+```
+
+See the [Releases](https://github.com/akira-toriyama/prq/releases) page for
+published versions. Auth comes from the ambient `gh` CLI login (keyring /
+`GH_TOKEN`), via [go-gh](https://github.com/cli/go-gh).
+
+## Develop
 
 ```sh
 go build ./... && go vet ./... && go test ./...   # green == CI green
 go build -o prq ./cmd/prq                          # local binary
 ```
-
-Auth comes from the ambient `gh` CLI login (keyring / `GH_TOKEN`), via
-[go-gh](https://github.com/cli/go-gh).
