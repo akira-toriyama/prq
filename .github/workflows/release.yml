@@ -1,0 +1,59 @@
+name: release
+
+# Tag-driven release: pushing a vX.Y.Z tag runs git-cliff + GoReleaser (binaries,
+# checksums, Homebrew cask) and attaches build-provenance attestations.
+# Deliberately NOT on every main push — that would run GoReleaser with no tag.
+# Use workflow_dispatch for a manual run.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write      # create the GitHub release
+  id-token: write      # keyless signing for provenance attestation
+  attestations: write  # write the attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      # No job-level `env: GOTOOLCHAIN: local` — see build.yml. It would make
+      # setup-go skip go.mod's `toolchain` line and ship release binaries built
+      # with the bare floor. setup-go pins GOTOOLCHAIN=local itself.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: generate release notes (git-cliff)
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          # Write OUTSIDE the work tree: a CHANGELOG.md in the repo root leaves an
+          # untracked file and GoReleaser's git-state check aborts with "git is
+          # in a dirty state". runner.temp is off-tree.
+          OUTPUT: ${{ runner.temp }}/CHANGELOG.md
+
+      - name: GoReleaser
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          # Pin the GoReleaser TOOL to the v2 line (never `latest`).
+          version: "~> 2"
+          args: release --clean --release-notes ${{ runner.temp }}/CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with write access to akira-toriyama/homebrew-tap.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: 'dist/*.tar.gz, dist/checksums.txt'

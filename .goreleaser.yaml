@@ -1,0 +1,51 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: prq
+    main: ./cmd/prq
+    binary: prq
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/akira-toriyama/prq/internal/version.Version={{.Version}}
+      - -X github.com/akira-toriyama/prq/internal/version.Commit={{.Commit}}
+      - -X github.com/akira-toriyama/prq/internal/version.Date={{.Date}}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+# Homebrew cask pushed to the family tap on release. GoReleaser v2 ships
+# prebuilt binaries as CASKS (the old `brews:` formula path is deprecated); the
+# live Casks/prq.rb in akira-toriyama/homebrew-tap is regenerated each release.
+# Install: brew install akira-toriyama/tap/prq.
+homebrew_casks:
+  - repository:
+      owner: akira-toriyama
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/akira-toriyama/prq
+    description: "One-call PR state synthesis for AI coding agents — why is this PR blocked?"
+    # The binary is unsigned; strip the quarantine xattr on macOS so Gatekeeper
+    # allows launch (same pattern as the family's other casks).
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/prq"]
+          end
+
+release:
+  # Rolling-draft: pushes refresh a draft; publishing (or the tag) cuts it.
+  draft: true
