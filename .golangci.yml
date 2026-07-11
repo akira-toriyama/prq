@@ -33,8 +33,10 @@ linters:
         - fmt.Fprintln
     revive:
       rules:
-        # cobra RunE handlers have a fixed (cmd, args) signature; an unused one
-        # is unavoidable, not a smell.
+        # Carried from the fleet golangci baseline. prq uses stdlib flag (no
+        # cobra, D16) and writes unused params as `_`, so this rarely fires; it
+        # stays disabled for parity with the sibling Go tools (which do take an
+        # unavoidable unused param in fixed-signature handlers).
         - name: unused-parameter
           disabled: true
   exclusions:
