@@ -436,10 +436,11 @@ func analyzeContexts(r *Report, in Input) (blockers, pending []entry, counts Che
 	}
 
 	sort.Strings(optFailLines)
-	if len(optFailLines) > capNonBlocking {
-		optFailLines = append(optFailLines[:capNonBlocking],
-			fmt.Sprintf("+%d more checks not shown", len(optFailLines)-capNonBlocking))
-	}
+	// Do NOT pre-cap here: finish() runs the single recap over the whole
+	// non_blocking list (hooks note + these lines + the pending aggregate).
+	// A second cap with a different summary phrasing ("+N more checks not
+	// shown" vs recap's "+N more") only corrupts the count, since recap does
+	// not recognize the former as a fold line (§1.3 note).
 	r.NonBlocking = append(r.NonBlocking, optFailLines...)
 	if optPendingCount > 0 {
 		r.NonBlocking = append(r.NonBlocking, fmt.Sprintf("%d optional checks pending", optPendingCount))
