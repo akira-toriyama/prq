@@ -1,9 +1,13 @@
 module github.com/akira-toriyama/prq
 
-go 1.23.3
+// Floor pinned to a patched 1.25.x: go-version-file drives CI/release to build
+// with exactly this toolchain, so the shipped binary carries current stdlib
+// security fixes (crypto/tls GO-2026-5856 is fixed here). 1.23 was EOL. The
+// 1.25 floor also lets go-gh v2 reach v2.13.0 (which requires go 1.25.0).
+go 1.25.12
 
 require (
-	github.com/cli/go-gh/v2 v2.12.2
+	github.com/cli/go-gh/v2 v2.13.0
 	github.com/cli/safeexec v1.0.0
 )
 
