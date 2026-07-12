@@ -17,6 +17,8 @@ func TestClassify(t *testing.T) {
 		wantExit int
 	}{
 		{"401", &api.HTTPError{StatusCode: 401, Message: "bad credentials"}, "auth", 3},
+		// SAML shape stays docs-based: no SAML-enforcing org was reachable
+		// from this account to capture it live (2026-07-12 probe).
 		{"403 saml", &api.HTTPError{StatusCode: 403, Message: "Resource protected by organization SAML enforcement"}, "saml_blocked", 3},
 		{"403 rate limit", &api.HTTPError{StatusCode: 403, Message: "API rate limit exceeded", Headers: http.Header{"Retry-After": []string{"30"}}}, "rate_limited", 4},
 		{"403 other", &api.HTTPError{StatusCode: 403, Message: "forbidden"}, "auth", 3},
@@ -42,6 +44,18 @@ func TestClassify(t *testing.T) {
 		for _, err := range []error{
 			&api.HTTPError{StatusCode: 404},
 			&api.GraphQLError{Errors: []api.GraphQLErrorItem{{Type: "NOT_FOUND"}}},
+			// Live shape captured 2026-07-12 with a fine-grained PAT
+			// ("All repositories" access, default metadata-only permission)
+			// against an inaccessible private repo: GitHub masks the whole
+			// repository node as NOT_FOUND — the same envelope a classic
+			// token gets — so no fine-grained-specific branch is needed.
+			// (Same run confirmed fine-grained PATs now support GraphQL at
+			// all: single-PR and --mine calls succeed on public repos.)
+			&api.GraphQLError{Errors: []api.GraphQLErrorItem{{
+				Type:    "NOT_FOUND",
+				Path:    []interface{}{"repository"},
+				Message: "Could not resolve to a Repository with the name 'akira-toriyama/projects'.",
+			}}},
 		} {
 			var nf *NotFoundError
 			if !errors.As(Classify(err, "o/r#1"), &nf) {
