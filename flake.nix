@@ -34,7 +34,7 @@
           pname = "prq";
           inherit version;
           src = ./.;
-          vendorHash = "sha256-ezA1mJaVSg7sHo5EWB8/uZAtQGu1InN+XCTnqHcTA/w=";
+          vendorHash = "sha256-xlFiTfs/6Sa7tCN/z5BzKJkwmwClqQ2fiQBJshHaQIg=";
           ldflags = [
             "-s" "-w"
             "-X ${v}.Version=${version}"
