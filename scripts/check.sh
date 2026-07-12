@@ -2,11 +2,16 @@
 # check.sh — the full local verification, runnable by you or by Claude Code with
 # no TTY. Mirrors what CI enforces (build.yml → shared go-ci reusable: module
 # hygiene / build / vet / race-test / lint; plus govulncheck), so a green run
-# here means a green CI. GOTOOLCHAIN=local uses whatever toolchain is installed;
-# the go.mod floor is a patched supported minor, and CI's go-version-file pins it.
+# here means a green CI. The toolchain is pinned to the go.mod floor — the same
+# version CI's go-version-file installs — so every step (govulncheck included)
+# sees the exact stdlib CI sees. GOTOOLCHAIN=local would instead use whatever go
+# is on PATH, which both diverges from CI and can carry open stdlib vulns
+# (GO-2026-5856 on 1.26.0–1.26.4). First run may download the floor toolchain
+# once (network); an explicit GOTOOLCHAIN in the environment wins.
 set -eu
 cd "$(dirname "$0")/.."
-export GOTOOLCHAIN=local
+GOTOOLCHAIN="${GOTOOLCHAIN:-go$(awk '/^go [0-9]/{print $2; exit}' go.mod)}"
+export GOTOOLCHAIN
 
 echo "→ module hygiene (go mod tidy -diff + verify)"
 go mod tidy -diff

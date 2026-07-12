@@ -78,6 +78,10 @@ go install github.com/akira-toriyama/prq/cmd/prq@latest
 nix run github:akira-toriyama/prq -- --help
 ```
 
+> `go install …@latest` builds with whatever Go you have locally — Go never
+> downgrades to the go.mod floor, so keep that toolchain patched (`govulncheck`
+> clean). The other three channels build with a pinned, patched toolchain.
+
 See the [Releases](https://github.com/akira-toriyama/prq/releases) page for
 published versions. Auth comes from the ambient `gh` CLI login (keyring /
 `GH_TOKEN`), via [go-gh](https://github.com/cli/go-gh).
