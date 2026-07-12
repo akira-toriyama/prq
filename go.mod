@@ -2,8 +2,11 @@ module github.com/akira-toriyama/prq
 
 // Floor pinned to a patched 1.25.x: go-version-file drives CI/release to build
 // with exactly this toolchain, so the shipped binary carries current stdlib
-// security fixes (crypto/tls GO-2026-5856 is fixed here). 1.23 was EOL. The
-// 1.25 floor also lets go-gh v2 reach v2.13.0 (which requires go 1.25.0).
+// security fixes (crypto/tls GO-2026-5856 is fixed here). build.sh and
+// scripts/check.sh pin GOTOOLCHAIN to this floor, and flake.nix pins the same
+// minor (buildGo125Module); `go install @latest` is the one channel that
+// builds with the local toolchain (README notes it). 1.23 was EOL. The 1.25
+// floor also lets go-gh v2 reach v2.13.0 (requires go 1.25.0).
 go 1.25.12
 
 require (

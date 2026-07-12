@@ -25,7 +25,12 @@
         v = "github.com/akira-toriyama/prq/internal/version";
       in
       {
-        packages.default = pkgs.buildGoModule {
+        # buildGo125Module, not buildGoModule: the Nix sandbox cannot download
+        # toolchains, so the builder's own go IS the build toolchain. Pick the
+        # go.mod floor's minor line (GO-2026-5856 is patched in 1.25.12; the
+        # nixpkgs default buildGoModule was go 1.26.4, which is not). Keep in
+        # lockstep when the floor moves minors.
+        packages.default = pkgs.buildGo125Module {
           pname = "prq";
           inherit version;
           src = ./.;
@@ -50,9 +55,11 @@
         };
 
         devShells.default = pkgs.mkShell {
-          # go (not a pinned go_1_xx): nixpkgs removed EOL go versions; go.mod's
-          # floor is satisfied by any current toolchain (GOTOOLCHAIN=local).
-          packages = [ pkgs.go pkgs.golangci-lint pkgs.goreleaser pkgs.git-cliff pkgs.govulncheck ];
+          # go_1_25 matches the go.mod floor's minor: build.sh/check.sh pin
+          # GOTOOLCHAIN to the floor, and an exact-match local toolchain
+          # satisfies that pin with no download (downloaded toolchains do not
+          # run on non-FHS NixOS). Keep in lockstep with the floor.
+          packages = [ pkgs.go_1_25 pkgs.golangci-lint pkgs.goreleaser pkgs.git-cliff pkgs.govulncheck ];
         };
       });
 }
