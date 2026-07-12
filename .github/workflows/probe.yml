@@ -1,0 +1,39 @@
+# TEMPORARY probe for docs/design.md "Unverified" items 2 & 6 (projects t-2swn):
+# (a) does a required-but-SKIPPED / required-but-NEUTRAL check satisfy branch
+# rules, and (b) does CheckRun.isRequired report true under a repository
+# ruleset (not classic branch protection)? This file lives only on the probe
+# branch; the PR that carries it is closed unmerged and the branch deleted.
+name: probe
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # A job-level `if: false` reports a check run with conclusion SKIPPED.
+  skip-probe:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo never
+
+  # A check run with conclusion NEUTRAL can only come from the Checks API.
+  neutral-probe:
+    permissions:
+      checks: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'neutral-probe-run',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'neutral',
+            });
