@@ -1,6 +1,6 @@
 name: release
 
-# Tag-driven release: pushing a vX.Y.Z tag runs git-cliff + GoReleaser (binaries,
+# Tag-driven release: pushing a vX.Y.Z tag runs glyph notes + GoReleaser (binaries,
 # checksums, Homebrew cask) and attaches build-provenance attestations.
 # Deliberately NOT on every main push — that would run GoReleaser with no tag.
 # Use workflow_dispatch for a manual run.
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          # git-cliff and GoReleaser only READ local git; every write (release,
+          # glyph and GoReleaser only READ local git; every write (release,
           # cask push) goes through API tokens passed as env, never git — drop
           # the persisted checkout token (zizmor artipacked). t-yaxa
           persist-credentials: false
@@ -38,16 +38,42 @@ jobs:
           # t-yaxa
           cache: false
 
-      - name: generate release notes (git-cliff)
-        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
+      # The pin is a CONCRETE glyph release tag — the action verifies the
+      # binary against that release's checksums + build provenance. Keep both
+      # versions in lockstep when bumping.
+      - name: install glyph
+        uses: akira-toriyama/glyph/.github/actions/install@v0.8.0
         with:
-          config: cliff.toml
-          args: --latest --strip header
+          version: v0.8.0
+          token: ${{ github.token }}
+
+      - name: generate release notes (glyph)
         env:
-          # Write OUTSIDE the work tree: a CHANGELOG.md in the repo root leaves an
-          # untracked file and GoReleaser's git-state check aborts with "git is
-          # in a dirty state". runner.temp is off-tree.
-          OUTPUT: ${{ runner.temp }}/CHANGELOG.md
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The pushed tag sits at HEAD and is already the highest v* tag, so a
+          # bare --since-tag (auto = highest tag) would walk an empty range.
+          # Name the PREVIOUS version tag as the walk base — glyph's "redo this
+          # release" form; a first release (no earlier tag) walks from the root
+          # commit instead (an exclusive range bound, so the root itself stays
+          # out — acceptable for the one release that has this shape).
+          if base="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null)"; then
+            :
+          else
+            base="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+          status=0
+          glyph notes --since-tag="$base" > "$RUNNER_TEMP/CHANGELOG.md" || status=$?
+          if [ "$status" -eq 1 ]; then
+            # Soft no-release: nothing since $base classifies release-worthy.
+            # The human still cut the tag, so release with an empty body
+            # rather than failing the run.
+            echo "::notice::glyph found nothing release-worthy since $base — releasing with empty notes."
+            : > "$RUNNER_TEMP/CHANGELOG.md"
+          elif [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
 
       - name: GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
