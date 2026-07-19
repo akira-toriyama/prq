@@ -1,6 +1,9 @@
 # Canonical standard file managed by fleet-sync (.github/workflows/fleet-sync.yml).
 # Do NOT edit per-repo copies — edit THIS file; fleet-sync propagates it to every
-# owned, non-fork, non-archived repo. Synced to: .github/dependabot.yml
+# owned, non-fork, non-archived repo WITH a root go.mod (repos without one get
+# fleet/dependabot.yml — the same file minus the gomod ecosystem, because gomod
+# configured without a go.mod is a weekly FAILING run, not a no-op; t-s3fp).
+# Synced to: .github/dependabot.yml
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -20,9 +23,9 @@ updates:
     commit-message:
       prefix: ":arrow_up: build(deps)"
 
-  # Go module updates. A no-op on repos without a go.mod (the Swift/other repos
-  # in the fleet), so it is safe fleet-wide, and it turns on dependency +
-  # security updates for the Go tools (pare, furrow). Batched into one weekly PR.
+  # Go module updates for the Go tools (pare, furrow, glyph, …): dependency +
+  # security updates, batched into one weekly PR. Only synced to repos that
+  # actually have a root go.mod (see the header note).
   - package-ecosystem: gomod
     directory: /
     schedule:
