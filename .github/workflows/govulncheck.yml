@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   scan:
-    uses: akira-toriyama/.github/.github/workflows/go-vuln.yml@v1
+    uses: akira-toriyama/.github/.github/workflows/go-vuln.yml@v1.2.0
     with:
       go-version-file: go.mod
       binary-path: ./cmd/prq
