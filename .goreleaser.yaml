@@ -47,5 +47,11 @@ homebrew_casks:
           end
 
 release:
-  # Rolling-draft: pushes refresh a draft; publishing (or the tag) cuts it.
-  draft: true
+  # Publish at tag time, no draft. A draft's assets are 404 to anonymous
+  # clients while homebrew_casks above has ALREADY pushed the new version to
+  # the tap in this same run — so every draft is a window where
+  # `brew install` is broken, bounded only by how soon a human remembers to
+  # publish. prq sat that way for two days at v0.1.2; cifail managed 17.
+  # glyph, cifail, furrow, pare, rundiff and mergeprobe all publish at tag
+  # time — this is the last repo that did not.
+  draft: false
