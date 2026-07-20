@@ -18,7 +18,7 @@ jobs:
   # SHA-pinned once in the hub. The go.mod floor is a patched supported minor, so
   # go-version-file drives the build toolchain.
   ci:
-    uses: akira-toriyama/.github/.github/workflows/go-ci.yml@v1
+    uses: akira-toriyama/.github/.github/workflows/go-ci.yml@v2
     with:
       go-version-file: go.mod
 
