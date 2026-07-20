@@ -1,8 +1,12 @@
-# Canonical standard file managed by fleet-sync (.github/workflows/fleet-sync.yml).
-# Do NOT edit per-repo copies — edit THIS file; fleet-sync propagates it to every
-# owned, non-fork, non-archived repo WITH a root go.mod (repos without one get
-# fleet/dependabot.yml — the same file minus the gomod ecosystem, because gomod
-# configured without a go.mod is a weekly FAILING run, not a no-op; t-s3fp).
+# Canonical BASE for each repo's dependabot.yml, managed by fleet-sync
+# (.github/workflows/fleet-sync.yml). Do NOT edit per-repo copies — fleet-sync
+# ASSEMBLES the distributed file per repo: this base (github-actions only, which
+# every repo has) plus one block from fleet/dependabot.d/ per package ecosystem
+# whose ROOT manifest exists on the target (go.mod → gomod, Package.swift →
+# swift, package.json → npm). An ecosystem configured without its manifest is
+# NOT a no-op — Dependabot records a FAILING run every week (t-s3fp) — and a
+# base-only overwrite ERASES a repo's real ecosystems (t-vhr9: chord's swift and
+# study-engine's npm update entries were wiped, killing their bump PRs).
 # Synced to: .github/dependabot.yml
 version: 2
 updates:
@@ -24,8 +28,9 @@ updates:
       prefix: ":arrow_up: build(deps)"
 
   # Go module updates for the Go tools (pare, furrow, glyph, …): dependency +
-  # security updates, batched into one weekly PR. Only synced to repos that
-  # actually have a root go.mod (see the header note).
+  # security updates, batched into one weekly PR. Appended by fleet-sync only
+  # where a root go.mod exists (fleet/dependabot.d/gomod.yml — see the base
+  # fleet/dependabot.yml header for the assembly scheme).
   - package-ecosystem: gomod
     directory: /
     schedule:
