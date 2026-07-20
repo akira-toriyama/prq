@@ -42,7 +42,7 @@ jobs:
       # binary against that release's checksums + build provenance. Keep both
       # versions in lockstep when bumping.
       - name: install glyph
-        uses: akira-toriyama/glyph/.github/actions/install@v0.8.1
+        uses: akira-toriyama/glyph/.github/actions/install@v0.10.0
         with:
           version: v0.8.0
           token: ${{ github.token }}
