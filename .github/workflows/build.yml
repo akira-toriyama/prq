@@ -22,6 +22,18 @@ jobs:
     with:
       go-version-file: go.mod
 
+  # Do the tests this pull request adds actually bite? The gate runs them against
+  # the source BEFORE the pull request and fails the ones that all still pass — a
+  # test that would have been green without its own fix is not evidence of that fix,
+  # and nothing but habit was checking. Stands down on its own when there is nothing
+  # to prove (no shipping change, no new test, an annotated behaviour pin), so it
+  # costs a pull request nothing to carry.
+  # Rationale + the two opt-outs: akira-toriyama/.github/blob/main/docs/go-bite.md
+  bite:
+    uses: akira-toriyama/.github/.github/workflows/go-bite.yml@v2
+    with:
+      go-version-file: go.mod
+
   # Repo-specific check: exercise the shipped binary on both OSes the core test
   # job (build + unit tests) doesn't separately cover.
   extras:
