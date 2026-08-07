@@ -33,7 +33,11 @@ homebrew_casks:
   - repository:
       owner: akira-toriyama
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      # Pushed over SSH with the tap's write deploy key (fleet-sync fans the
+      # secret out; t-6bhz) — not the GitHub API, so no account-scoped token.
+      git:
+        url: "git@github.com:akira-toriyama/homebrew-tap.git"
+        private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}"
     directory: Casks
     homepage: https://github.com/akira-toriyama/prq
     description: "One-call PR state synthesis for AI coding agents — why is this PR blocked?"
