@@ -7,7 +7,7 @@ module github.com/akira-toriyama/prq
 // minor (buildGo125Module); `go install @latest` is the one channel that
 // builds with the local toolchain (README notes it). 1.23 was EOL. The 1.25
 // floor also lets go-gh v2 reach v2.13.0 (requires go 1.25.0).
-go 1.25.12
+go 1.25.13
 
 require (
 	github.com/cli/go-gh/v2 v2.13.0
