@@ -434,7 +434,7 @@ Test seams (both used):
 | 16 | contexts > 400 / threads > 500 | scripted | truncation degraded notes; `ci` from aggregates; lower-bound thread count |
 | 17 | degraded threads (partial data + FORBIDDEN item) | fixture | field omitted, `degraded:["threads"]`, exit 3 when otherwise clean, exit 1 when blocked |
 | 18 | degraded isRequired | UNPROCESSABLE items | conservative blockers with `(required?)`, `degraded:["required"]` |
-| 19 | fp invariants | property-style pairs | check-order permutation ⇒ equal; behind 3→7 ⇒ equal; optional check added ⇒ equal; push w/ identical verdict ⇒ equal; run-id change / thread resolved / approval ⇒ differ; `v1|` prefix present |
+| 19 | fp invariants | property-style pairs | check-order permutation ⇒ equal; behind 3→7 ⇒ equal; optional check added ⇒ equal; push w/ identical verdict ⇒ equal; run-id change / thread resolved / approval ⇒ differ; `v1\|` prefix present |
 | 20 | `--mine`: 3 PRs / 2 repos / 1 needs detail | scripted | exactly 2 HTTP requests; NDJSON sorted; per-line fp; rollup exit; ≤256 B/line; 25-alias chunking at 30 PRs |
 | 21 | `--mine` partial failure + truncation | scripted | error line + `truncated` line, outcome exit preserved |
 | 22 | rate limit 403 → Retry-After → 200; then exhausted variant | scripted, fake clock | one wait then success; exhausted → error object, exit 4 |
