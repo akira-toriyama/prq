@@ -10,7 +10,7 @@ module github.com/akira-toriyama/prq
 go 1.25.13
 
 require (
-	github.com/cli/go-gh/v2 v2.16.0
+	github.com/cli/go-gh/v2 v2.16.1
 	github.com/cli/safeexec v1.0.1
 )
 
