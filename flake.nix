@@ -25,16 +25,15 @@
         v = "github.com/akira-toriyama/prq/internal/version";
       in
       {
-        # buildGo125Module, not buildGoModule: the Nix sandbox cannot download
-        # toolchains, so the builder's own go IS the build toolchain. Pick the
-        # go.mod floor's minor line (GO-2026-5856 is patched in 1.25.12; the
-        # nixpkgs default buildGoModule was go 1.26.4, which is not). Keep in
-        # lockstep when the floor moves minors.
-        packages.default = pkgs.buildGo125Module {
+        # The Nix sandbox cannot download toolchains, so the builder's own go IS
+        # the build toolchain: this path builds with the Go the locked nixpkgs
+        # ships, not with go.mod's `toolchain` line. A stdlib security fix reaches
+        # it when flake.lock moves to a nixpkgs whose go is at or past that line.
+        packages.default = pkgs.buildGoModule {
           pname = "prq";
           inherit version;
           src = ./.;
-          vendorHash = "sha256-xlFiTfs/6Sa7tCN/z5BzKJkwmwClqQ2fiQBJshHaQIg=";
+          vendorHash = "sha256-yHfB7EdtMXdlMFHqy+FAwSNDtgMhnHzKUMIJUDtNNFQ=";
           ldflags = [
             "-s" "-w"
             "-X ${v}.Version=${version}"
@@ -55,11 +54,11 @@
         };
 
         devShells.default = pkgs.mkShell {
-          # go_1_25 matches the go.mod floor's minor: build.sh/check.sh pin
-          # GOTOOLCHAIN to the floor, and an exact-match local toolchain
-          # satisfies that pin with no download (downloaded toolchains do not
-          # run on non-FHS NixOS). Keep in lockstep with the floor.
-          packages = [ pkgs.go_1_25 pkgs.golangci-lint pkgs.goreleaser pkgs.git-cliff pkgs.govulncheck ];
+          # go (not a pinned go_1_xx — nixpkgs removes EOL versions): a local go
+          # at or past go.mod's `toolchain` line satisfies it with no download
+          # (downloaded toolchains do not run on non-FHS NixOS), so keep the lock
+          # at a nixpkgs whose go is at least that line.
+          packages = [ pkgs.go pkgs.golangci-lint pkgs.goreleaser pkgs.git-cliff pkgs.govulncheck ];
         };
       });
 }

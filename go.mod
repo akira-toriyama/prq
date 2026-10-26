@@ -1,13 +1,14 @@
 module github.com/akira-toriyama/prq
 
-// Floor pinned to a patched 1.25.x: go-version-file drives CI/release to build
-// with exactly this toolchain, so the shipped binary carries current stdlib
-// security fixes (crypto/tls GO-2026-5856 is fixed here). build.sh and
-// scripts/check.sh pin GOTOOLCHAIN to this floor, and flake.nix pins the same
-// minor (buildGo125Module); `go install @latest` is the one channel that
-// builds with the local toolchain (README notes it). 1.23 was EOL. The 1.25
-// floor also lets go-gh v2 reach v2.13.0 (requires go 1.25.0).
-go 1.25.13
+// Floor is a supported minor (never an EOL pin); `toolchain` names the build
+// toolchain. CI leaves GOTOOLCHAIN unset so setup-go reads this file, honors the
+// `toolchain` line and pins it; a job-level GOTOOLCHAIN=local up front would make
+// setup-go skip the toolchain line and install the bare floor instead. build.sh
+// and scripts/check.sh leave it unset for the same reason; `go install @latest`
+// is the one channel that builds with the local toolchain (README notes it).
+go 1.26.0
+
+toolchain go1.26.10
 
 require (
 	github.com/cli/go-gh/v2 v2.16.1
