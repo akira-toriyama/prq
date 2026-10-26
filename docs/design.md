@@ -383,7 +383,7 @@ GHES: out of scope for v1. Host ≠ github.com → proceed best-effort with `deg
 
 ## 5. Go architecture
 
-**Dependencies: stdlib + `github.com/cli/go-gh/v2` `v2.13.0`** (D1; the ≥1.25 toolchain bump this section once anticipated has landed — the go.mod floor is go 1.25.12). **No cobra** (D16): one command, ≤8 flags; stdlib `flag`.
+**Dependencies: stdlib + `github.com/cli/go-gh/v2` `v2.13.0`** (D1; the ≥1.25 toolchain bump this section once anticipated has landed; go.mod is the one home for the current floor and toolchain). **No cobra** (D16): one command, ≤8 flags; stdlib `flag`.
 
 v1 folded the six packages first sketched here (`cli`/`ghx`/`query`/`output`/`run`) into `cmd/prq` plus four `internal/` packages; the responsibilities are unchanged, only the boundaries:
 
