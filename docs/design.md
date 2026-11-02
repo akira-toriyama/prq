@@ -10,7 +10,7 @@ Where proposals A (api-correctness), B (agent-ux), C (robustness) conflicted:
 
 | # | topic | decision | rationale |
 |---|---|---|---|
-| D1 | go-gh version | **v2.13.0** (design-time pin was v2.12.2) | at design time v2.13.0's `.mod` required go 1.25.0 while the local toolchain was go1.23.3, so v2.12.2 was pinned; the go.mod floor has since moved to go 1.25.12 (commit 86a166c) and go-gh was bumped to v2.13.0 exactly as §5 anticipated — the used API surface is unchanged |
+| D1 | go-gh version | **v2.13.0** (design-time pin was v2.12.2) | at design time v2.13.0's `.mod` required go 1.25.0 while the local toolchain was go1.23.3, so v2.12.2 was pinned; 86a166c (2026-07-11) raised the floor and go-gh moved to v2.13.0 as the design-time §5 anticipated — the used API surface is unchanged. go.mod is the one home for the floor, the toolchain and go-gh's current version |
 | D2 | behind-by fetch | in the main query via `pullRequest.baseRef.compare(headRef:"refs/pull/N/head")` (B) | judge re-verified live on fork PR cli/cli#13761: `behindBy:13`, cost 1 — one round trip, fork-proof, no base-name pre-resolve; drops A/C's conditional follow-up and A's `--behind` flag |
 | D3 | `state` field | prq-derived verdict enum (B), not raw `mergeStateStatus` passthrough (A) | the synthesized verdict is the product; raw value still available as `merge_state` when it differs |
 | D4 | multi-PR output | **NDJSON**, one object per line (B) | per-line `fp` diff with `grep -F`/`cmp`, no reflow, partial consumption; A/C's wrapper object adds bytes for no agent value |
@@ -202,7 +202,7 @@ Dedup: (a) DIRTY/CONFLICTING emit one conflict blocker; (b) queue membership sup
 
 ### 2.4 Degraded handling
 
-go-gh populates the response struct **before** returning `*GraphQLError` (source-verified; behavior unchanged through the shipped v2.13.0), so prq always synthesizes from whatever arrived:
+go-gh populates the response struct **before** returning `*GraphQLError` (source-verified through the version D1 records; go.mod is the one home for the version in use), so prq always synthesizes from whatever arrived:
 
 - `reviewThreads` errored → omit `unresolved_threads`, `degraded:["threads"]`, threads blocker disabled.
 - `isRequired` errored on all contexts → `degraded:["required"]`; **conservative fallback**: every failing check becomes a blocker (detail suffixed `(required?)`), every pending check → pending[]. Over-block rather than false-CLEAN.
@@ -383,7 +383,7 @@ GHES: out of scope for v1. Host ≠ github.com → proceed best-effort with `deg
 
 ## 5. Go architecture
 
-**Dependencies: stdlib + `github.com/cli/go-gh/v2` `v2.13.0`** (D1; the ≥1.25 toolchain bump this section once anticipated has landed; go.mod is the one home for the current floor and toolchain). **No cobra** (D16): one command, ≤8 flags; stdlib `flag`.
+**Dependencies: stdlib + `github.com/cli/go-gh/v2`** (D1; go.mod is the one home for its version, the floor and the toolchain). **No cobra** (D16): one command, ≤8 flags; stdlib `flag`.
 
 v1 folded the six packages first sketched here (`cli`/`ghx`/`query`/`output`/`run`) into `cmd/prq` plus four `internal/` packages; the responsibilities are unchanged, only the boundaries:
 
