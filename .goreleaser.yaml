@@ -40,6 +40,7 @@ homebrew_casks:
         private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}"
     directory: Casks
     homepage: https://github.com/akira-toriyama/prq
+    commit_msg_template: ":package:(tap)= bump {{ .ProjectName }} to {{ .Tag }}"
     description: "One-call PR state synthesis for AI coding agents — why is this PR blocked?"
     # The binary is unsigned; strip the quarantine xattr on macOS so Gatekeeper
     # allows launch (same pattern as the family's other casks).
