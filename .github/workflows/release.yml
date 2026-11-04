@@ -1,9 +1,11 @@
 name: release
 
-# Tag-driven release: pushing a vX.Y.Z tag runs glyph notes + GoReleaser (binaries,
-# checksums, Homebrew cask) and attaches build-provenance attestations.
+# Tag-driven release: pushing a vX.Y.Z tag renders the body with glyph's
+# release-notes action, then runs GoReleaser (binaries, checksums, Homebrew cask)
+# and attaches build-provenance attestations.
 # Deliberately NOT on every main push — that would run GoReleaser with no tag.
-# Use workflow_dispatch for a manual run.
+# Dispatch workflow_dispatch on a tag ref only: the notes action takes the ref
+# as the tag being released, and a branch name fails it (exit 2).
 on:
   push:
     tags: ['v*']
@@ -39,48 +41,36 @@ jobs:
           cache: false
 
       # The pin is a CONCRETE glyph release tag — the action verifies the
-      # binary against that release's checksums + build provenance. Keep both
-      # versions in lockstep when bumping.
+      # binary against that release's checksums + build provenance. Keep this
+      # ref, `version:` and the release-notes action's ref below in lockstep
+      # when bumping: that action runs the binary installed here.
       - name: install glyph
         uses: akira-toriyama/glyph/.github/actions/install@v6.1.0
         with:
           version: v6.1.0
           token: ${{ github.token }}
 
-      - name: generate release notes (glyph)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # The pushed tag sits at HEAD and is already the highest v* tag, so a
-          # bare --since-tag (auto = highest tag) would walk an empty range.
-          # Name the PREVIOUS version tag as the walk base — glyph's "redo this
-          # release" form; a first release (no earlier tag) walks from the root
-          # commit instead (an exclusive range bound, so the root itself stays
-          # out — acceptable for the one release that has this shape).
-          if base="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null)"; then
-            :
-          else
-            base="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
-          fi
-          status=0
-          glyph notes --since-tag="$base" > "$RUNNER_TEMP/CHANGELOG.md" || status=$?
-          if [ "$status" -eq 1 ]; then
-            # Soft no-release: nothing since $base classifies release-worthy.
-            # The human still cut the tag, so release with an empty body
-            # rather than failing the run.
-            echo "::notice::glyph found nothing release-worthy since $base — releasing with empty notes."
-            : > "$RUNNER_TEMP/CHANGELOG.md"
-          elif [ "$status" -ne 0 ]; then
-            exit "$status"
-          fi
+      # The tag-time notes rule is the action's (its header), not this file's:
+      # glyph resolves the walk base itself (`--since-tag=below:<tag>`), and
+      # every tag, rc or full, walks from the last full release below it — a
+      # hand-rolled `git describe HEAD^` takes an rc as the base. Exits 1
+      # (nothing release-worthy) and 3 (the walk reaches a commit glyph refuses —
+      # the wedge-escape tag's own walk always does) publish a placeholder body
+      # that says why, so the pushed tag never ends up without assets; every
+      # other exit fails the job. The walk reads tags and history: keep
+      # checkout's fetch-depth: 0.
+      - name: release notes (glyph)
+        id: notes
+        uses: akira-toriyama/glyph/.github/actions/release-notes@v6.1.0
+        with:
+          token: ${{ github.token }}
 
       - name: GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           # Pin the GoReleaser TOOL to the v2 line (never `latest`).
           version: "~> 2"
-          args: release --clean --release-notes ${{ runner.temp }}/CHANGELOG.md
+          args: release --clean --release-notes ${{ steps.notes.outputs.file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Private half of homebrew-tap's write deploy key (fleet-sync fans it
